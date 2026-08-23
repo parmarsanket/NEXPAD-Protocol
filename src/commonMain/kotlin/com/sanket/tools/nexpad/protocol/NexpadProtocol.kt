@@ -20,7 +20,7 @@ import java.nio.ByteOrder
  * | 13     | 1    | Trigger L2      | UInt8   | 0 to 255                                     |
  * | 14     | 1    | Trigger R2      | UInt8   | 0 to 255                                     |
  * | 15     | 24   | IMU Sensors     | Float*6 | gyroX, gyroY, gyroZ, accelX, accelY, accelZ  |
- * | 39     | 1    | Reserved        | Byte    | 0                                            |
+ * | 39     | 1    | Sensor Flags    | Byte    | Bitmask: bit0 = accel carries gravity data   |
  * | 40     | 4    | Sequence Number | Int32   | Packet ID for ordering & RTT                 |
  *
  * Byte layout for Feedback Packet (10 bytes):
@@ -64,6 +64,9 @@ object NexpadProtocol {
     const val MASK_BTN_SELECT = 1 shl 13
     const val MASK_BTN_GUIDE = 1 shl 14
     const val MASK_BTN_SHARE = 1 shl 15
+
+    // Sensor flags
+    const val SENSOR_FLAG_GRAVITY: Byte = 0x01  // bit 0: accel fields carry gravity sensor data
     const val MASK_BTN_SCREENSHOT = 1 shl 16
     const val MASK_BTN_M1 = 1 shl 17
     const val MASK_BTN_M2 = 1 shl 18
@@ -163,7 +166,7 @@ object NexpadProtocol {
         buffer.putFloat(input.accelX)
         buffer.putFloat(input.accelY)
         buffer.putFloat(input.accelZ)
-        buffer.put(0) // reserved
+        buffer.put(input.sensorFlags)
         buffer.putInt(input.sequenceNumber)
     }
 
@@ -196,10 +199,12 @@ object NexpadProtocol {
         val accelY = buffer.getFloat()
         val accelZ = buffer.getFloat()
         
-        // Skip reserved byte
-        buffer.get()
+        val sensorFlags = buffer.get()
 
         val sequenceNumber = buffer.getInt()
+
+        // If the gravity flag is set, the accel fields carry gravity sensor data
+        val hasGravity = (sensorFlags.toInt() and SENSOR_FLAG_GRAVITY.toInt()) != 0
 
         return GamepadInput(
             btnA = (buttons and MASK_BTN_A) != 0,
@@ -237,6 +242,10 @@ object NexpadProtocol {
             accelX = accelX,
             accelY = accelY,
             accelZ = accelZ,
+            gravityX = if (hasGravity) accelX else 0f,
+            gravityY = if (hasGravity) accelY else 0f,
+            gravityZ = if (hasGravity) accelZ else 0f,
+            sensorFlags = sensorFlags,
             sequenceNumber = sequenceNumber
         )
     }
