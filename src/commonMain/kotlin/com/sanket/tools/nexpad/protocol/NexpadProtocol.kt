@@ -65,8 +65,6 @@ object NexpadProtocol {
     const val MASK_BTN_GUIDE = 1 shl 14
     const val MASK_BTN_SHARE = 1 shl 15
 
-    // Sensor flags
-    const val SENSOR_FLAG_GRAVITY: Byte = 0x01  // bit 0: accel fields carry gravity sensor data
     const val MASK_BTN_SCREENSHOT = 1 shl 16
     const val MASK_BTN_M1 = 1 shl 17
     const val MASK_BTN_M2 = 1 shl 18
@@ -75,10 +73,13 @@ object NexpadProtocol {
     const val MASK_BTN_PROFILE = 1 shl 21
     const val MASK_BTN_TURBO = 1 shl 22
 
+    // Sensor flags
+    const val SENSOR_FLAG_GRAVITY: Byte = 0x01  // bit 0: accel fields carry gravity sensor data
+
     private var currentSequenceNumber = 0
-    fun getCurrentSequenceNumber(): Int {
-        currentSequenceNumber++
-        if (currentSequenceNumber == Int.MAX_VALUE) currentSequenceNumber = 0
+    fun nextSequenceNumber(): Int {
+        val next = currentSequenceNumber + 1
+        currentSequenceNumber = if (next == Int.MAX_VALUE) 0 else next
         return currentSequenceNumber
     }
 
@@ -125,6 +126,7 @@ object NexpadProtocol {
      * Encodes a GamepadInput object into a 44-byte array using the binary protocol.
      */
     fun encodeInput(input: GamepadInput, byteArray: ByteArray) {
+        require(byteArray.size == INPUT_PACKET_SIZE) { "expected $INPUT_PACKET_SIZE bytes, got ${byteArray.size}" }
         val buffer = ByteBuffer.wrap(byteArray).order(ByteOrder.BIG_ENDIAN)
         buffer.put(PROTOCOL_VERSION)
         
@@ -239,9 +241,9 @@ object NexpadProtocol {
             gyroX = gyroX,
             gyroY = gyroY,
             gyroZ = gyroZ,
-            accelX = accelX,
-            accelY = accelY,
-            accelZ = accelZ,
+            accelX = if (hasGravity) 0f else accelX,
+            accelY = if (hasGravity) 0f else accelY,
+            accelZ = if (hasGravity) 0f else accelZ,
             gravityX = if (hasGravity) accelX else 0f,
             gravityY = if (hasGravity) accelY else 0f,
             gravityZ = if (hasGravity) accelZ else 0f,
