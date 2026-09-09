@@ -22,18 +22,6 @@ data class DomNode(
         return results
     }
 
-    fun findByClass(className: String): List<DomNode> {
-        val results = mutableListOf<DomNode>()
-        fun recurse(node: DomNode) {
-            if (node.classNames.any { it.equals(className, ignoreCase = true) }) {
-                results.add(node)
-            }
-            node.children.forEach { recurse(it) }
-        }
-        recurse(this)
-        return results
-    }
-
     fun findFirstText(): String? {
         if (textContent.isNotBlank()) return textContent.trim()
         for (child in children) {

@@ -51,10 +51,32 @@ object GradientParser {
             if (inner != null) {
                 var cx = defaultPos?.first ?: 0.5f
                 var cy = defaultPos?.second ?: 0.5f
-                val atMatcher = Pattern.compile("(?:circle\\s+|ellipse\\s+)?at\\s+(\\d+(?:\\.\\d+)?)%\\s+(\\d+(?:\\.\\d+)?)%").matcher(inner)
+                var radiusRatio = 0.55f * defaultSizeRatio
+
+                // Check for extent keywords
+                when {
+                    inner.contains("closest-side") -> radiusRatio = 0.45f * defaultSizeRatio
+                    inner.contains("closest-corner") -> radiusRatio = 0.55f * defaultSizeRatio
+                    inner.contains("farthest-side") -> radiusRatio = 0.65f * defaultSizeRatio
+                    inner.contains("farthest-corner") -> radiusRatio = 0.81f * defaultSizeRatio
+                }
+
+                // Check explicit radius: e.g. "circle 45px at ..." or "40% at ..."
+                val radiusMatcher = Pattern.compile("(?:circle\\s+|ellipse\\s+)?(\\d+(?:\\.\\d+)?)(px|%)?\\s+at").matcher(inner)
+                if (radiusMatcher.find()) {
+                    val rVal = radiusMatcher.group(1).toFloatOrNull() ?: 50f
+                    val unit = radiusMatcher.group(2)
+                    radiusRatio = if (unit == "%") (rVal / 100f) else (rVal / 100f) // normalized to viewBox ~100
+                }
+
+                // Check center position: "at X% Y%" or keyword positions
+                val atMatcher = Pattern.compile("at\\s+([a-zA-Z0-9%.-]+)(?:\\s+([a-zA-Z0-9%.-]+))?").matcher(inner)
                 if (atMatcher.find()) {
-                    cx = (atMatcher.group(1).toFloatOrNull() ?: 50f) / 100f
-                    cy = (atMatcher.group(2).toFloatOrNull() ?: 50f) / 100f
+                    val pos1 = atMatcher.group(1).lowercase()
+                    val pos2 = atMatcher.group(2)?.lowercase()
+                    val resolved = resolveKeywordPosition(pos1, pos2)
+                    cx = resolved.first
+                    cy = resolved.second
                 }
 
                 val (colors, stops) = parseGradientStops(inner)
@@ -62,7 +84,7 @@ object GradientParser {
                     return FillBrush.RadialGradient(
                         colors = colors,
                         stops = stops,
-                        radiusRatio = 0.55f * defaultSizeRatio,
+                        radiusRatio = radiusRatio,
                         centerXRatio = cx,
                         centerYRatio = cy
                     )
@@ -74,14 +96,35 @@ object GradientParser {
         if (clean.contains("linear-gradient")) {
             val inner = extractParenthesizedContent(clean, "linear-gradient")
             if (inner != null) {
-                var angle = 180f
-                val angleMatcher = Pattern.compile("(-?\\d+(?:\\.\\d+)?)deg").matcher(inner)
-                if (angleMatcher.find()) {
-                    angle = angleMatcher.group(1).toFloatOrNull() ?: 180f
-                } else if (inner.contains("to right")) angle = 90f
-                else if (inner.contains("to bottom right") || inner.contains("135deg")) angle = 135f
-                else if (inner.contains("to top")) angle = 0f
-                else if (inner.contains("to left")) angle = 270f
+                var angle = 180f // CSS default is "to bottom" = 180deg
+
+                // Directional keywords
+                when {
+                    inner.contains("to top right") || inner.contains("to right top") -> angle = 45f
+                    inner.contains("to bottom right") || inner.contains("to right bottom") -> angle = 135f
+                    inner.contains("to bottom left") || inner.contains("to left bottom") -> angle = 225f
+                    inner.contains("to top left") || inner.contains("to left top") -> angle = 315f
+                    inner.contains("to top") -> angle = 0f
+                    inner.contains("to right") -> angle = 90f
+                    inner.contains("to bottom") -> angle = 180f
+                    inner.contains("to left") -> angle = 270f
+                    else -> {
+                        // Numeric angles: deg, turn, rad
+                        val degMatcher = Pattern.compile("(-?\\d+(?:\\.\\d+)?)deg").matcher(inner)
+                        val turnMatcher = Pattern.compile("(-?\\d+(?:\\.\\d+)?)turn").matcher(inner)
+                        val radMatcher = Pattern.compile("(-?\\d+(?:\\.\\d+)?)rad").matcher(inner)
+                        if (degMatcher.find()) {
+                            val d = degMatcher.group(1).toFloatOrNull() ?: 180f
+                            angle = ((d % 360f) + 360f) % 360f
+                        } else if (turnMatcher.find()) {
+                            val t = turnMatcher.group(1).toFloatOrNull() ?: 0.5f
+                            angle = (((t * 360f) % 360f) + 360f) % 360f
+                        } else if (radMatcher.find()) {
+                            val r = radMatcher.group(1).toDoubleOrNull() ?: Math.PI
+                            angle = ((Math.toDegrees(r).toFloat() % 360f) + 360f) % 360f
+                        }
+                    }
+                }
 
                 val (colors, stops) = parseGradientStops(inner)
                 if (colors.size >= 2) {
@@ -96,10 +139,13 @@ object GradientParser {
             if (inner != null) {
                 var cx = 0.5f
                 var cy = 0.5f
-                val atMatcher = Pattern.compile("at\\s+(\\d+(?:\\.\\d+)?)%\\s+(\\d+(?:\\.\\d+)?)%").matcher(inner)
+                val atMatcher = Pattern.compile("at\\s+([a-zA-Z0-9%.-]+)(?:\\s+([a-zA-Z0-9%.-]+))?").matcher(inner)
                 if (atMatcher.find()) {
-                    cx = (atMatcher.group(1).toFloatOrNull() ?: 50f) / 100f
-                    cy = (atMatcher.group(2).toFloatOrNull() ?: 50f) / 100f
+                    val pos1 = atMatcher.group(1).lowercase()
+                    val pos2 = atMatcher.group(2)?.lowercase()
+                    val resolved = resolveKeywordPosition(pos1, pos2)
+                    cx = resolved.first
+                    cy = resolved.second
                 }
                 val (colors, stops) = parseGradientStops(inner)
                 if (colors.size >= 2) {
@@ -112,6 +158,36 @@ object GradientParser {
         ColorParser.parse(clean)?.let { return FillBrush.Solid(it) }
 
         return null
+    }
+
+    private fun resolveKeywordPosition(pos1: String, pos2: String?): Pair<Float, Float> {
+        var x = 0.5f
+        var y = 0.5f
+
+        fun parseToken(tok: String, isSecond: Boolean) {
+            when (tok) {
+                "left" -> x = 0.0f
+                "right" -> x = 1.0f
+                "top" -> y = 0.0f
+                "bottom" -> y = 1.0f
+                "center" -> { if (!isSecond) { x = 0.5f; y = 0.5f } }
+                else -> {
+                    if (tok.endsWith("%")) {
+                        val v = (tok.removeSuffix("%").toFloatOrNull() ?: 50f) / 100f
+                        if (!isSecond) x = v else y = v
+                    } else if (tok.endsWith("px")) {
+                        val v = (tok.removeSuffix("px").toFloatOrNull() ?: 50f) / 100f
+                        if (!isSecond) x = v else y = v
+                    }
+                }
+            }
+        }
+
+        parseToken(pos1, false)
+        if (pos2 != null) {
+            parseToken(pos2, true)
+        }
+        return Pair(x.coerceIn(0f, 1f), y.coerceIn(0f, 1f))
     }
 
     private fun extractParenthesizedContent(text: String, funcName: String): String? {
@@ -148,22 +224,76 @@ object GradientParser {
             }
             val color = ColorParser.extractColorAnywhere(p)
             if (color != null) {
-                colors.add(color)
+                val pcts = mutableListOf<Float>()
                 val pctMatcher = Pattern.compile("(\\d+(?:\\.\\d+)?)%").matcher(p)
+                while (pctMatcher.find()) {
+                    pcts.add((pctMatcher.group(1).toFloatOrNull() ?: 0f) / 100f)
+                }
+
                 val degMatcher = Pattern.compile("(\\d+(?:\\.\\d+)?)deg").matcher(p)
-                if (pctMatcher.find()) {
-                    stops.add((pctMatcher.group(1).toFloatOrNull() ?: 0f) / 100f)
-                } else if (degMatcher.find()) {
-                    stops.add(((degMatcher.group(1).toFloatOrNull() ?: 0f) / 360f).coerceIn(0f, 1f))
-                } else {
-                    stops.add(-1f)
+
+                when {
+                    pcts.size >= 2 -> {
+                        // Multi-position stop: e.g. "#fff 20% 50%" creates two stops
+                        colors.add(color)
+                        stops.add(pcts[0])
+                        colors.add(color)
+                        stops.add(pcts[1])
+                    }
+                    pcts.size == 1 -> {
+                        colors.add(color)
+                        stops.add(pcts[0])
+                    }
+                    degMatcher.find() -> {
+                        colors.add(color)
+                        stops.add(((degMatcher.group(1).toFloatOrNull() ?: 0f) / 360f).coerceIn(0f, 1f))
+                    }
+                    else -> {
+                        colors.add(color)
+                        stops.add(-1f)
+                    }
                 }
             }
         }
 
-        if (colors.isNotEmpty() && (stops.size != colors.size || stops.contains(-1f))) {
-            val normalizedStops = colors.indices.map { it.toFloat() / (colors.size - 1).coerceAtLeast(1) }
-            return Pair(colors, normalizedStops)
+        if (colors.isNotEmpty() && stops.contains(-1f)) {
+            val interpolated = stops.toMutableList()
+            // Set first/last if undefined
+            if (interpolated[0] < 0f) interpolated[0] = 0f
+            if (interpolated.last() < 0f) interpolated[interpolated.lastIndex] = 1f
+            // Linear-interpolate between defined anchor points
+            var lastDefined = 0
+            for (i in 1 until interpolated.size) {
+                if (interpolated[i] >= 0f) {
+                    if (i - lastDefined > 1) {
+                        val startVal = interpolated[lastDefined]
+                        val endVal = interpolated[i]
+                        val span = i - lastDefined
+                        for (j in 1 until span) {
+                            interpolated[lastDefined + j] = startVal + (endVal - startVal) * j / span
+                        }
+                    }
+                    lastDefined = i
+                }
+            }
+            // Ensure monotonic non-decreasing for Compose Brush requirements
+            for (i in 1 until interpolated.size) {
+                if (interpolated[i] < interpolated[i - 1]) {
+                    interpolated[i] = interpolated[i - 1]
+                }
+            }
+            return Pair(colors, interpolated)
+        }
+
+        // Ensure monotonic non-decreasing even if all stops were defined
+        if (stops.size > 1) {
+            val sortedStops = stops.toMutableList()
+            for (i in 1 until sortedStops.size) {
+                if (sortedStops[i] < sortedStops[i - 1]) {
+                    sortedStops[i] = sortedStops[i - 1]
+                }
+            }
+            return Pair(colors, sortedStops)
         }
 
         return Pair(colors, stops)

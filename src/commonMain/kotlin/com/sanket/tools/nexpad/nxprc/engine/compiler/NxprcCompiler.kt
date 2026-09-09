@@ -10,6 +10,8 @@ import com.sanket.tools.nexpad.nxprc.engine.dom.HtmlDomParser
 import com.sanket.tools.nexpad.nxprc.engine.parsers.*
 import java.util.regex.Pattern
 
+private data class LayerEntry(val stackIndex: Int, val order: Int, val layer: CanvasLayer)
+
 /**
  * High-Level Multiplatform Compiler: Transforms HTML/CSS/SVG markup into native .nxprc documents.
  */
@@ -23,13 +25,18 @@ object NxprcCompiler {
         defaultControl: String = "A"
     ): NxprcDocument {
         val parsed = HtmlDomParser.parse(html)
-        val stylesheet = CssTokenizer.parse(parsed.embeddedCss + "\n" + extractInlineStylesheets(html))
+        val stylesheet = CssTokenizer.parse(parsed.embeddedCss)
 
         // 1. Find the Primary Gamepad Button Node
         val primaryNode = findPrimaryButtonNode(parsed.root, stylesheet)
         val style = CssCascadeResolver.computeStyle(primaryNode, stylesheet)
 
-        val layers = mutableListOf<CanvasLayer>()
+        val layerEntries = mutableListOf<LayerEntry>()
+        var layerOrderSeq = 0
+        fun addLayer(stackIndex: Int, layer: CanvasLayer) {
+            layerEntries.add(LayerEntry(stackIndex, layerOrderSeq++, layer))
+        }
+
         val baseProps = style.base
         val beforeStyle = style.before
         val afterStyle = style.after
@@ -47,32 +54,43 @@ object NxprcCompiler {
         val border = GeometryParser.parseBorder(baseProps["border"] ?: baseProps["border-top"] ?: baseProps["border-width"])
         val radii = GeometryParser.parseBorderRadius(baseProps["border-radius"], defaultSizeDp = buttonWidth)
 
-        val isOval = radii.topLeft >= (buttonWidth * 0.35f) || baseProps["border-radius"]?.contains("50%") == true
+        val rootClip = GeometryParser.parseClipPath(baseProps["clip-path"] ?: baseProps["-webkit-clip-path"], buttonWidth, buttonHeight)
+        val isOval = (radii.topLeft >= (buttonWidth * 0.35f) && radii.topRight >= (buttonWidth * 0.35f) &&
+                      radii.bottomRight >= (buttonWidth * 0.35f) && radii.bottomLeft >= (buttonWidth * 0.35f)) ||
+                      baseProps["border-radius"]?.contains("50%") == true
         val shapeType = when {
-            baseProps["clip-path"]?.contains("polygon") == true -> "POLYGON"
+            rootClip != null -> rootClip.shapeType
             isOval -> "OVAL"
             else -> "ROUNDED_RECT"
         }
+        val rootPolySides = rootClip?.polygonSides ?: 0
+        val rootPathData = rootClip?.pathData ?: ""
 
         val hasExplicitBezel = primaryNode.attributes["data-bezel"] == "true" ||
                 primaryNode.classNames.any { it.contains("bezel") || it.contains("socket") } ||
-                outsetShadows.any { it.spreadRadius > 0f }
+                (isOval && outsetShadows.any { it.spreadRadius > 0f })
 
-        val allFills = GradientParser.parseAll(
+        val rawFills = GradientParser.parseAll(
             baseProps["background"] ?: baseProps["background-color"] ?: baseProps["fill"],
             baseProps["background-position"],
             baseProps["background-size"]
         )
+        val bgColor = ColorParser.parse(baseProps["background-color"])
+        val allFills = if (bgColor != null && bgColor != 0x00000000L && rawFills.none { it is FillBrush.Solid && it.color == bgColor }) {
+            rawFills + FillBrush.Solid(bgColor)
+        } else {
+            rawFills
+        }
 
         val isBoxPrimitive = primaryNode.attributes["data-primitive"] == "box" ||
-                (!hasExplicitBezel && (allFills.size > 1 || allBoxShadows.size > 1 || primaryNode.classNames.any {
+                (!hasExplicitBezel && (allFills.size > 1 || allBoxShadows.size > 1 || rootClip != null || primaryNode.classNames.any {
                     it.contains("box") || it.contains("card") || it.contains("panel")
                 }))
 
         // Drop shadow / Atmospheric Glow Layer (requires blur > 0 and bright non-dark color)
         val glowShadow = outsetShadows.firstOrNull { it.blurRadius > 0f && !ColorParser.isDark(it.color) }
         if (glowShadow != null) {
-            layers.add(CanvasLayer.GlowRing(glowColor = glowShadow.color, blurRadius = glowShadow.blurRadius, pulseEnabled = true))
+            addLayer(5, CanvasLayer.GlowRing(glowColor = glowShadow.color, blurRadius = glowShadow.blurRadius, pulseEnabled = true))
         }
 
         val baseTransform = AnimationParser.parseTransforms(
@@ -83,13 +101,19 @@ object NxprcCompiler {
         )
 
         if (isBoxPrimitive) {
-            layers.add(
+            addLayer(
+                10,
                 CanvasLayer.BoxLayer(
                     shapeType = shapeType,
+                    polygonSides = rootPolySides,
+                    pathData = rootPathData,
                     cornerRadiusTopLeft = radii.topLeft,
                     cornerRadiusTopRight = radii.topRight,
                     cornerRadiusBottomRight = radii.bottomRight,
                     cornerRadiusBottomLeft = radii.bottomLeft,
+                    widthRatio = 1.0f,
+                    heightRatio = 1.0f,
+                    clipToBounds = baseProps["overflow"] == "hidden" || rootClip != null,
                     fill = allFills.firstOrNull() ?: FillBrush.Solid(0xFF0A192FL),
                     fills = allFills.reversed(),
                     stroke = border,
@@ -115,7 +139,8 @@ object NxprcCompiler {
                 val strokeColor = ringShadow?.color ?: border?.color ?: 0xFF292A30L
                 val primaryDarkShadow = outsetShadows.firstOrNull { ColorParser.isDark(it.color) }?.color ?: 0x73000000L
 
-                layers.add(
+                addLayer(
+                    8,
                     CanvasLayer.BezelSocket(
                         outerBezelColor = outerBezelColor,
                         outerBevelStroke = strokeColor,
@@ -129,7 +154,8 @@ object NxprcCompiler {
 
             if (svgPaths.isNotEmpty()) {
                 svgPaths.forEachIndexed { index, path ->
-                    layers.add(
+                    addLayer(
+                        10,
                         CanvasLayer.VectorPath(
                             pathData = path,
                             fill = if (index == 0) allFills.first() else FillBrush.Solid(0x00000000L),
@@ -141,7 +167,8 @@ object NxprcCompiler {
             } else {
                 // Paint bottom-to-top (reversed from CSS declaration)
                 allFills.reversed().forEachIndexed { index, fillBrush ->
-                    layers.add(
+                    addLayer(
+                        10,
                         CanvasLayer.GradientShape(
                             shapeType = shapeType,
                             cornerRadius = radii.topLeft,
@@ -168,139 +195,176 @@ object NxprcCompiler {
             if (combinedInset.isNotEmpty()) {
                 val darkInset = combinedInset.firstOrNull { ColorParser.isDark(it.color) }?.color ?: 0x73000000L
                 val lightInset = combinedInset.firstOrNull { !ColorParser.isDark(it.color) }?.color ?: 0x30FFFFFFL
-                layers.add(CanvasLayer.InnerShadow(shadowColor = darkInset, highlightColor = lightInset, strokeWidth = 3.5f))
+                addLayer(15, CanvasLayer.InnerShadow(shadowColor = darkInset, highlightColor = lightInset, strokeWidth = 3.5f))
             }
         }
 
-        // 4. ::before: Socket groove, outer radial depth, metallic conic rim
+        // Identify the actual text node early to exclude it from background child compilation
+        fun findRealTextNode(node: DomNode): DomNode? {
+            val labeledChild = node.children.firstOrNull { child ->
+                child.classNames.any { it.contains("label") || it.contains("text") || it.contains("glyph") } &&
+                        child.findFirstText()?.isNotBlank() == true
+            }
+            if (labeledChild != null) return findRealTextNode(labeledChild) ?: labeledChild
+
+            if (node.textContent.isNotBlank()) {
+                return node
+            }
+            for (child in node.children) {
+                findRealTextNode(child)?.let { return it }
+            }
+            return null
+        }
+
+        val textNode = findRealTextNode(primaryNode)
+
+        // 4. ::before: Socket groove, inner recessed core, or radial depth
         if (beforeStyle != null) {
-            val beforeBgs = beforeStyle["background"]?.let {
+            val rawBeforeBgs = beforeStyle["background"]?.let {
                 GradientParser.parseAll(it, beforeStyle["background-position"], beforeStyle["background-size"])
             } ?: emptyList()
+            val beforeBgColor = ColorParser.parse(beforeStyle["background-color"])
+            val beforeBgs = if (beforeBgColor != null && beforeBgColor != 0x00000000L && rawBeforeBgs.none { it is FillBrush.Solid && it.color == beforeBgColor }) {
+                rawBeforeBgs + FillBrush.Solid(beforeBgColor)
+            } else rawBeforeBgs
+
             val beforeOpacity = beforeStyle["opacity"]?.toFloatOrNull() ?: 1.0f
             val beforeFilter = FilterParser.parse(beforeStyle["filter"])
             val beforeBorder = GeometryParser.parseBorder(beforeStyle["border"] ?: beforeStyle["border-width"])
-            val beforeRadii = GeometryParser.parseBorderRadius(beforeStyle["border-radius"], defaultSizeDp = buttonWidth)
+            val bounds = GeometryParser.computeBoxBounds(beforeStyle, buttonWidth, buttonHeight)
+            val beforeWidth = bounds.width
+            val beforeHeight = bounds.height
+            val beforeLeft = bounds.left
+            val beforeTop = bounds.top
+
+            val beforeRadii = GeometryParser.parseBorderRadius(beforeStyle["border-radius"], defaultSizeDp = beforeWidth)
+            val beforeClip = GeometryParser.parseClipPath(beforeStyle["clip-path"] ?: beforeStyle["-webkit-clip-path"], beforeWidth, beforeHeight)
+            val isBeforeOval = beforeStyle["border-radius"]?.contains("50%") == true ||
+                (beforeRadii.topLeft >= (beforeWidth * 0.35f) && beforeRadii.topRight >= (beforeWidth * 0.35f) &&
+                 beforeRadii.bottomRight >= (beforeWidth * 0.35f) && beforeRadii.bottomLeft >= (beforeWidth * 0.35f))
             val beforeShape = when {
-                beforeRadii.topLeft >= (buttonWidth * 0.35f) || beforeStyle["border-radius"]?.contains("50%") == true -> "OVAL"
+                beforeClip != null -> beforeClip.shapeType
+                isBeforeOval -> "OVAL"
                 else -> shapeType
             }
+            val beforePolySides = beforeClip?.polygonSides ?: 0
+            val beforePolyPath = beforeClip?.pathData ?: ""
+
+            val beforeZ = GeometryParser.parseZIndex(beforeStyle)
+            val beforeStack = 50 + beforeZ * 10
 
             val beforeTransform = AnimationParser.parseTransforms(
                 beforeStyle["transform"],
                 beforeStyle["transform-origin"],
-                buttonWidth,
-                buttonHeight
+                beforeWidth,
+                beforeHeight
             )
+            val beforeShadows = beforeStyle["box-shadow"]?.let { ShadowParser.parseBoxShadows(it) } ?: emptyList()
 
-            beforeBgs.reversed().forEachIndexed { index, bg ->
-                layers.add(
-                    CanvasLayer.GradientShape(
+            if (isBoxPrimitive && (beforeBgs.isNotEmpty() || beforeBorder != null || beforeShadows.isNotEmpty())) {
+                addLayer(
+                    beforeStack,
+                    CanvasLayer.BoxLayer(
                         shapeType = beforeShape,
-                        cornerRadius = beforeRadii.topLeft,
-                        fill = bg,
-                        stroke = if (index == beforeBgs.size - 1) beforeBorder else null,
+                        polygonSides = beforePolySides,
+                        pathData = beforePolyPath,
+                        cornerRadiusTopLeft = beforeRadii.topLeft,
+                        cornerRadiusTopRight = beforeRadii.topRight,
+                        cornerRadiusBottomRight = beforeRadii.bottomRight,
+                        cornerRadiusBottomLeft = beforeRadii.bottomLeft,
+                        widthRatio = beforeWidth / buttonWidth,
+                        heightRatio = beforeHeight / buttonHeight,
+                        clipToBounds = beforeStyle["overflow"] == "hidden" || beforeClip != null || baseProps["overflow"] == "hidden",
+                        fill = beforeBgs.firstOrNull() ?: FillBrush.Solid(0x00000000L),
+                        fills = beforeBgs.reversed(),
+                        stroke = beforeBorder,
+                        boxShadows = beforeShadows,
                         opacity = beforeOpacity,
                         rotationDegrees = beforeTransform.rotationDegrees,
-                        offsetXRatio = beforeTransform.translateX / buttonWidth,
-                        offsetYRatio = beforeTransform.translateY / buttonHeight,
+                        offsetXRatio = (beforeLeft + beforeTransform.translateX) / buttonWidth,
+                        offsetYRatio = (beforeTop + beforeTransform.translateY) / buttonHeight,
                         scaleX = beforeTransform.scaleX,
                         scaleY = beforeTransform.scaleY,
+                        skewX = beforeTransform.skewX,
+                        skewY = beforeTransform.skewY,
                         originXRatio = beforeTransform.originXRatio,
                         originYRatio = beforeTransform.originYRatio
                     )
                 )
-            }
-
-            val beforeShadows = beforeStyle["box-shadow"]?.let { ShadowParser.parseBoxShadows(it) } ?: emptyList()
-            val beforeInsets = beforeShadows.filter { it.isInset }
-            if (beforeInsets.isNotEmpty() && !isBoxPrimitive) {
-                val darkB = beforeInsets.firstOrNull { ColorParser.isDark(it.color) }?.color ?: 0x73000000L
-                val lightB = beforeInsets.firstOrNull { !ColorParser.isDark(it.color) }?.color ?: 0x30FFFFFFL
-                layers.add(CanvasLayer.InnerShadow(shadowColor = darkB, highlightColor = lightB, strokeWidth = 3.0f))
-            } else if (beforeBgs.isEmpty()) {
-                val glossWidth = GeometryParser.parsePixelOrPercent(beforeStyle["width"], buttonWidth, buttonWidth * 0.55f) / buttonWidth
-                val glossHeight = GeometryParser.parsePixelOrPercent(beforeStyle["height"], buttonHeight, buttonHeight * 0.32f) / buttonHeight
-                val glossTop = GeometryParser.parsePixelOrPercent(beforeStyle["top"], buttonHeight, buttonHeight * 0.07f) / buttonHeight
-                val glossLeft = GeometryParser.parsePixelOrPercent(beforeStyle["left"], buttonWidth, buttonWidth * 0.14f) / buttonWidth
-                val glossTransform = AnimationParser.parseTransforms(
-                    beforeStyle["transform"],
-                    beforeStyle["transform-origin"],
-                    buttonWidth,
-                    buttonHeight
-                )
-
-                layers.add(
-                    CanvasLayer.GlossReflection(
-                        offsetXRatio = glossLeft,
-                        offsetYRatio = glossTop,
-                        widthRatio = glossWidth,
-                        heightRatio = glossHeight,
-                        rotationDegrees = glossTransform.rotationDegrees.takeIf { it != 0f } ?: -18f,
-                        alpha = (0.75f * beforeOpacity).coerceIn(0.1f, 1.0f),
-                        blurRadius = beforeFilter.blurRadiusPx
+            } else {
+                beforeBgs.reversed().forEachIndexed { index, bg ->
+                    addLayer(
+                        beforeStack,
+                        CanvasLayer.GradientShape(
+                            shapeType = beforeShape,
+                            cornerRadius = beforeRadii.topLeft,
+                            fill = bg,
+                            stroke = if (index == beforeBgs.size - 1) beforeBorder else null,
+                            opacity = beforeOpacity,
+                            rotationDegrees = beforeTransform.rotationDegrees,
+                            offsetXRatio = beforeTransform.translateX / buttonWidth,
+                            offsetYRatio = beforeTransform.translateY / buttonHeight,
+                            scaleX = beforeTransform.scaleX,
+                            scaleY = beforeTransform.scaleY,
+                            originXRatio = beforeTransform.originXRatio,
+                            originYRatio = beforeTransform.originYRatio
+                        )
                     )
-                )
+                }
+
+                val beforeInsets = beforeShadows.filter { it.isInset }
+                if (beforeInsets.isNotEmpty() && !isBoxPrimitive) {
+                    val darkB = beforeInsets.firstOrNull { ColorParser.isDark(it.color) }?.color ?: 0x73000000L
+                    val lightB = beforeInsets.firstOrNull { !ColorParser.isDark(it.color) }?.color ?: 0x30FFFFFFL
+                    addLayer(beforeStack + 2, CanvasLayer.InnerShadow(shadowColor = darkB, highlightColor = lightB, strokeWidth = 3.0f))
+                }
             }
         }
 
-        // 5. Inner Container Elements & Highlights (e.g. .nexpad-a-highlight or .btn-core)
-        val containerNodes = primaryNode.children.filter { it.tag != "span" && it.tag != "p" }
-        for (child in containerNodes) {
-            val childStyle = CssCascadeResolver.computeStyle(child, stylesheet).base
-            val childCls = child.classNames.joinToString(" ").lowercase()
+        // 5. Recursive DOM Tree Compilation (supports arbitrary nested spans, divs, grass blades, lenses)
+        fun compileDomChildren(
+            parentNode: DomNode,
+            parentWidth: Float,
+            parentHeight: Float,
+            parentGlobalX: Float,
+            parentGlobalY: Float,
+            isParentClipping: Boolean = false
+        ) {
+            for (child in parentNode.children) {
+                if (child == textNode) continue
 
-            if (!isVisible(childStyle)) continue
+                val childStyle = CssCascadeResolver.computeStyle(child, stylesheet).base
+                if (!isVisible(childStyle)) continue
 
-            if (childCls.contains("highlight") || childCls.contains("reflection") || childCls.contains("gloss") || childCls.contains("shine")) {
-                val w = GeometryParser.parsePixelOrPercent(childStyle["width"], buttonWidth, 30f)
-                val h = GeometryParser.parsePixelOrPercent(childStyle["height"], buttonHeight, 10f)
-                val left = GeometryParser.parsePositionalOffset(childStyle["left"], childStyle["right"], w, buttonWidth, 20f)
-                val top = GeometryParser.parsePositionalOffset(childStyle["top"], childStyle["bottom"], h, buttonHeight, 15f)
-                val transform = AnimationParser.parseTransforms(
-                    childStyle["transform"],
-                    childStyle["transform-origin"],
-                    w,
-                    h
-                )
-                val bgBrush = GradientParser.parseFirst(
-                    childStyle["background"],
-                    childStyle["background-position"],
-                    childStyle["background-size"]
-                )
-                val filter = FilterParser.parse(childStyle["filter"])
-                val opacity = childStyle["opacity"]?.toFloatOrNull() ?: 1.0f
-
-                val alpha = when (bgBrush) {
-                    is FillBrush.RadialGradient -> {
-                        val firstColor = bgBrush.colors.firstOrNull() ?: 0xFFFFFFFFL
-                        ((firstColor shr 24) and 0xFF) / 255f
-                    }
-                    is FillBrush.Solid -> ((bgBrush.color shr 24) and 0xFF) / 255f
-                    else -> 0.6f
-                }
-
-                layers.add(
-                    CanvasLayer.GlossReflection(
-                        offsetXRatio = left / buttonWidth,
-                        offsetYRatio = top / buttonHeight,
-                        widthRatio = w / buttonWidth,
-                        heightRatio = h / buttonHeight,
-                        rotationDegrees = transform.rotationDegrees.takeIf { it != 0f } ?: -18f,
-                        alpha = (alpha * opacity).coerceIn(0.1f, 1.0f),
-                        blurRadius = filter.blurRadiusPx
-                    )
-                )
-            } else {
-                // General container element (e.g. .btn-core, .inner, .box)
                 val cOpacity = childStyle["opacity"]?.toFloatOrNull() ?: 1.0f
-                val cBg = childStyle["background"] ?: childStyle["background-color"]
-                val cWidth = GeometryParser.parsePixelOrPercent(childStyle["width"], buttonWidth, buttonWidth * 0.85f)
-                val cHeight = GeometryParser.parsePixelOrPercent(childStyle["height"], buttonHeight, buttonHeight * 0.85f)
+
+                val bounds = GeometryParser.computeBoxBounds(childStyle, parentWidth, parentHeight)
+                val cWidth = bounds.width
+                val cHeight = bounds.height
+                val localLeft = bounds.left
+                val localTop = bounds.top
+
+                val globalX = parentGlobalX + localLeft
+                val globalY = parentGlobalY + localTop
+
                 val cRadii = GeometryParser.parseBorderRadius(childStyle["border-radius"], defaultSizeDp = cWidth)
                 val cBorder = GeometryParser.parseBorder(childStyle["border"] ?: childStyle["border-top"] ?: childStyle["border-width"])
-                val isCOval = cRadii.topLeft >= (cWidth * 0.35f) || childStyle["border-radius"]?.contains("50%") == true
-                val cShape = if (isCOval) "OVAL" else "ROUNDED_RECT"
+                val cClip = GeometryParser.parseClipPath(childStyle["clip-path"] ?: childStyle["-webkit-clip-path"], cWidth, cHeight)
+                val isCOval = childStyle["border-radius"]?.contains("50%") == true ||
+                    (cRadii.topLeft >= (cWidth * 0.35f) && cRadii.topRight >= (cWidth * 0.35f) &&
+                     cRadii.bottomRight >= (cWidth * 0.35f) && cRadii.bottomLeft >= (cWidth * 0.35f))
+                val cShape = when {
+                    cClip != null -> cClip.shapeType
+                    isCOval -> "OVAL"
+                    else -> "ROUNDED_RECT"
+                }
+                val cPolySides = cClip?.polygonSides ?: 0
+                val cPolyPath = cClip?.pathData ?: ""
+
+                val childZ = GeometryParser.parseZIndex(childStyle)
+                val childStack = 60 + childZ * 10
+
+                val cBg = childStyle["background"] ?: childStyle["background-color"]
                 val cFills = if (cBg != null) {
                     GradientParser.parseAll(
                         cBg,
@@ -308,34 +372,38 @@ object NxprcCompiler {
                         childStyle["background-size"]
                     )
                 } else emptyList()
+
                 val cShadows = ShadowParser.parseBoxShadows(childStyle["box-shadow"])
-
-                val isChildBox = isBoxPrimitive || child.attributes["data-primitive"] == "box" ||
-                        child.classNames.any { it.contains("box") || it.contains("card") || it.contains("panel") }
-
                 val cTransform = AnimationParser.parseTransforms(
                     childStyle["transform"],
                     childStyle["transform-origin"],
                     cWidth,
                     cHeight
                 )
+                val clipChild = childStyle["overflow"] == "hidden" || cClip != null || isParentClipping
 
-                if (isChildBox) {
-                    layers.add(
+                if (cFills.isNotEmpty() || cBorder != null || cShadows.isNotEmpty()) {
+                    addLayer(
+                        childStack,
                         CanvasLayer.BoxLayer(
                             shapeType = cShape,
+                            polygonSides = cPolySides,
+                            pathData = cPolyPath,
                             cornerRadiusTopLeft = cRadii.topLeft,
                             cornerRadiusTopRight = cRadii.topRight,
                             cornerRadiusBottomRight = cRadii.bottomRight,
                             cornerRadiusBottomLeft = cRadii.bottomLeft,
+                            widthRatio = cWidth / buttonWidth,
+                            heightRatio = cHeight / buttonHeight,
+                            clipToBounds = clipChild,
                             fill = cFills.firstOrNull() ?: FillBrush.Solid(0x00000000L),
                             fills = cFills.reversed(),
                             stroke = cBorder,
                             boxShadows = cShadows,
                             opacity = cOpacity,
                             rotationDegrees = cTransform.rotationDegrees,
-                            offsetXRatio = cTransform.translateX / buttonWidth,
-                            offsetYRatio = cTransform.translateY / buttonHeight,
+                            offsetXRatio = (globalX + cTransform.translateX) / buttonWidth,
+                            offsetYRatio = (globalY + cTransform.translateY) / buttonHeight,
                             scaleX = cTransform.scaleX,
                             scaleY = cTransform.scaleY,
                             skewX = cTransform.skewX,
@@ -344,101 +412,106 @@ object NxprcCompiler {
                             originYRatio = cTransform.originYRatio
                         )
                     )
-                } else {
-                    if (cFills.isNotEmpty()) {
-                        cFills.reversed().forEachIndexed { index, fillBrush ->
-                            layers.add(
-                                CanvasLayer.GradientShape(
-                                    shapeType = cShape,
-                                    cornerRadius = cRadii.topLeft,
-                                    fill = fillBrush,
-                                    stroke = if (index == cFills.size - 1) cBorder else null,
-                                    opacity = cOpacity,
-                                    rotationDegrees = cTransform.rotationDegrees,
-                                    offsetXRatio = cTransform.translateX / buttonWidth,
-                                    offsetYRatio = cTransform.translateY / buttonHeight,
-                                    scaleX = cTransform.scaleX,
-                                    scaleY = cTransform.scaleY,
-                                    originXRatio = cTransform.originXRatio,
-                                    originYRatio = cTransform.originYRatio
-                                )
-                            )
-                        }
-                    } else if (cBorder != null) {
-                        layers.add(
-                            CanvasLayer.GradientShape(
-                                shapeType = cShape,
-                                cornerRadius = cRadii.topLeft,
-                                fill = FillBrush.Solid(0x00000000L),
-                                stroke = cBorder,
-                                opacity = cOpacity,
-                                rotationDegrees = cTransform.rotationDegrees,
-                                offsetXRatio = cTransform.translateX / buttonWidth,
-                                offsetYRatio = cTransform.translateY / buttonHeight,
-                                scaleX = cTransform.scaleX,
-                                scaleY = cTransform.scaleY,
-                                originXRatio = cTransform.originXRatio,
-                                originYRatio = cTransform.originYRatio
-                            )
-                        )
-                    }
+                }
 
-                    val cInsets = cShadows.filter { it.isInset }
-                    if (cInsets.isNotEmpty() && !isChildBox) {
-                        val darkC = cInsets.firstOrNull { ColorParser.isDark(it.color) }?.color ?: 0x73000000L
-                        val lightC = cInsets.firstOrNull { !ColorParser.isDark(it.color) }?.color ?: 0x30FFFFFFL
-                        layers.add(CanvasLayer.InnerShadow(shadowColor = darkC, highlightColor = lightC, strokeWidth = 2.5f))
-                    }
+                if (child.children.isNotEmpty()) {
+                    compileDomChildren(
+                        parentNode = child,
+                        parentWidth = cWidth,
+                        parentHeight = cHeight,
+                        parentGlobalX = globalX,
+                        parentGlobalY = globalY,
+                        isParentClipping = clipChild
+                    )
                 }
             }
         }
 
+        compileDomChildren(
+            parentNode = primaryNode,
+            parentWidth = buttonWidth,
+            parentHeight = buttonHeight,
+            parentGlobalX = 0f,
+            parentGlobalY = 0f,
+            isParentClipping = baseProps["overflow"] == "hidden" || rootClip != null
+        )
+
         // 6. ::after: Top specular arc gloss & glass reflection edge
         if (afterStyle != null) {
-            val afterBgs = afterStyle["background"]?.let {
+            val rawAfterBgs = afterStyle["background"]?.let {
                 GradientParser.parseAll(it, afterStyle["background-position"], afterStyle["background-size"])
             } ?: emptyList()
+            val afterBgColor = ColorParser.parse(afterStyle["background-color"])
+            val afterBgs = if (afterBgColor != null && afterBgColor != 0x00000000L && rawAfterBgs.none { it is FillBrush.Solid && it.color == afterBgColor }) {
+                rawAfterBgs + FillBrush.Solid(afterBgColor)
+            } else rawAfterBgs
+
             val afterOpacity = afterStyle["opacity"]?.toFloatOrNull() ?: 1.0f
             val afterFilter = FilterParser.parse(afterStyle["filter"])
+            val bounds = GeometryParser.computeBoxBounds(afterStyle, buttonWidth, buttonHeight)
+            val afterWidth = bounds.width
+            val afterHeight = bounds.height
+            val afterLeft = bounds.left
+            val afterTop = bounds.top
+
             val afterTransform = AnimationParser.parseTransforms(
                 afterStyle["transform"],
                 afterStyle["transform-origin"],
-                buttonWidth,
-                buttonHeight
+                afterWidth,
+                afterHeight
             )
             val afterShadows = afterStyle["box-shadow"]?.let { ShadowParser.parseBoxShadows(it) } ?: emptyList()
             val afterBorder = GeometryParser.parseBorder(afterStyle["border"] ?: afterStyle["border-top"])
+            val afterRadii = GeometryParser.parseBorderRadius(afterStyle["border-radius"], defaultSizeDp = afterWidth)
+            val afterClip = GeometryParser.parseClipPath(afterStyle["clip-path"] ?: afterStyle["-webkit-clip-path"], afterWidth, afterHeight)
+            val isAfterOval = afterStyle["border-radius"]?.contains("50%") == true ||
+                (afterRadii.topLeft >= (afterWidth * 0.35f) && afterRadii.topRight >= (afterWidth * 0.35f) &&
+                 afterRadii.bottomRight >= (afterWidth * 0.35f) && afterRadii.bottomLeft >= (afterWidth * 0.35f))
+            val afterShape = when {
+                afterClip != null -> afterClip.shapeType
+                isAfterOval -> "OVAL"
+                else -> shapeType
+            }
+            val afterPolySides = afterClip?.polygonSides ?: 0
+            val afterPolyPath = afterClip?.pathData ?: ""
 
-            val hasOffsets = afterStyle.containsKey("top") || afterStyle.containsKey("left") || afterStyle.containsKey("width") || afterStyle.containsKey("height")
-            if (hasOffsets && afterBgs.isNotEmpty()) {
-                val glossW = GeometryParser.parsePixelOrPercent(afterStyle["width"], buttonWidth, buttonWidth * 0.70f) / buttonWidth
-                val glossH = GeometryParser.parsePixelOrPercent(afterStyle["height"], buttonHeight, buttonHeight * 0.38f) / buttonHeight
-                val glossT = GeometryParser.parsePixelOrPercent(afterStyle["top"], buttonHeight, buttonHeight * 0.06f) / buttonHeight
-                val glossL = GeometryParser.parsePixelOrPercent(afterStyle["left"], buttonWidth, buttonWidth * 0.15f) / buttonWidth
+            val afterZ = GeometryParser.parseZIndex(afterStyle)
+            val afterStack = 70 + afterZ * 10
 
-                val alpha = when (val firstBg = afterBgs.firstOrNull()) {
-                    is FillBrush.RadialGradient -> {
-                        val firstColor = firstBg.colors.firstOrNull() ?: 0xFFFFFFFFL
-                        (((firstColor shr 24) and 0xFF) / 255f).coerceIn(0.1f, 1.0f)
-                    }
-                    is FillBrush.Solid -> (((firstBg.color shr 24) and 0xFF) / 255f).coerceIn(0.1f, 1.0f)
-                    else -> 0.75f
-                }
-
-                layers.add(
-                    CanvasLayer.GlossReflection(
-                        offsetXRatio = glossL,
-                        offsetYRatio = glossT,
-                        widthRatio = glossW,
-                        heightRatio = glossH,
-                        rotationDegrees = afterTransform.rotationDegrees.takeIf { it != 0f } ?: -10f,
-                        alpha = (alpha * afterOpacity).coerceIn(0.1f, 1.0f),
-                        blurRadius = afterFilter.blurRadiusPx
+            if (isBoxPrimitive && afterBgs.isNotEmpty()) {
+                addLayer(
+                    afterStack,
+                    CanvasLayer.BoxLayer(
+                        shapeType = afterShape,
+                        polygonSides = afterPolySides,
+                        pathData = afterPolyPath,
+                        cornerRadiusTopLeft = afterRadii.topLeft,
+                        cornerRadiusTopRight = afterRadii.topRight,
+                        cornerRadiusBottomRight = afterRadii.bottomRight,
+                        cornerRadiusBottomLeft = afterRadii.bottomLeft,
+                        widthRatio = afterWidth / buttonWidth,
+                        heightRatio = afterHeight / buttonHeight,
+                        clipToBounds = afterStyle["overflow"] == "hidden" || afterClip != null || baseProps["overflow"] == "hidden",
+                        fill = afterBgs.firstOrNull() ?: FillBrush.Solid(0x00000000L),
+                        fills = afterBgs.reversed(),
+                        stroke = afterBorder,
+                        boxShadows = afterShadows,
+                        opacity = afterOpacity,
+                        rotationDegrees = afterTransform.rotationDegrees,
+                        offsetXRatio = (afterLeft + afterTransform.translateX) / buttonWidth,
+                        offsetYRatio = (afterTop + afterTransform.translateY) / buttonHeight,
+                        scaleX = afterTransform.scaleX,
+                        scaleY = afterTransform.scaleY,
+                        skewX = afterTransform.skewX,
+                        skewY = afterTransform.skewY,
+                        originXRatio = afterTransform.originXRatio,
+                        originYRatio = afterTransform.originYRatio
                     )
                 )
             } else if (afterBgs.isNotEmpty()) {
                 afterBgs.reversed().forEachIndexed { index, bg ->
-                    layers.add(
+                    addLayer(
+                        afterStack,
                         CanvasLayer.GradientShape(
                             shapeType = shapeType,
                             cornerRadius = radii.topLeft,
@@ -460,17 +533,6 @@ object NxprcCompiler {
 
         // 7. Center Text Label (Embossed 3D + Glow Text Shadows)
         var centerGlyphAdded = false
-        fun findTextNode(node: DomNode): DomNode? {
-            if (node.tag == "span" || node.tag == "p" || node.classNames.any { it.contains("label") || it.contains("text") }) {
-                return node
-            }
-            for (child in node.children) {
-                findTextNode(child)?.let { return it }
-            }
-            return null
-        }
-
-        val textNode = findTextNode(primaryNode)
         if (textNode != null) {
             val textStyle = CssCascadeResolver.computeStyle(textNode, stylesheet).base
             if (isVisible(textStyle)) {
@@ -488,7 +550,11 @@ object NxprcCompiler {
                 val darkTextShadow = textShadows.firstOrNull { ColorParser.isDark(it.color) }
                 val lightTextHighlight = textShadows.firstOrNull { !ColorParser.isDark(it.color) }
 
-                layers.add(
+                val textZ = GeometryParser.parseZIndex(textStyle)
+                val textStack = 200 + textZ * 10
+
+                addLayer(
+                    textStack,
                     CanvasLayer.CenterGlyph(
                         text = text,
                         fontSizeSp = fontSize,
@@ -513,7 +579,8 @@ object NxprcCompiler {
             val darkTextShadow = textShadows.firstOrNull { ColorParser.isDark(it.color) }
             val lightTextHighlight = textShadows.firstOrNull { !ColorParser.isDark(it.color) }
 
-            layers.add(
+            addLayer(
+                200,
                 CanvasLayer.CenterGlyph(
                     text = centerText,
                     fontSizeSp = fontSize,
@@ -558,20 +625,25 @@ object NxprcCompiler {
             ?: parsed.root.attributes["data-id"]
             ?: id
 
+        val primaryClass = primaryNode.classNames.firstOrNull()?.replace("-", "_")
         val resolvedId = when {
             autoId.isNotBlank() && autoId != "rc.custom" -> if (autoId.startsWith("rc.")) autoId else "rc.$autoId"
-            primaryNode.classNames.any { it.contains("nexpad-a") } -> "rc.nexpad_a"
+            primaryClass != null -> "rc.$primaryClass"
             else -> "rc.custom_$autoControl"
         }
 
         val resolvedName = when {
             autoName.isNotBlank() && autoName != "Custom Button" -> autoName
-            primaryNode.classNames.any { it.contains("nexpad-a") } -> "Nexpad A Button"
+            primaryClass != null -> primaryClass.split("_", "-").joinToString(" ") { word ->
+                word.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+            }
             else -> "Custom $autoControl Button"
         }
 
         val overflow = baseProps["overflow"]?.trim()?.lowercase()
-        val clipToBounds = overflow == "hidden" || baseProps["border-radius"]?.contains("50%") == true || radii.topLeft >= (buttonWidth * 0.4f)
+        val clipToBounds = overflow == "hidden" || rootClip != null || baseProps["border-radius"]?.contains("50%") == true || radii.topLeft >= (buttonWidth * 0.4f)
+
+        val layers = layerEntries.sortedWith(compareBy({ it.stackIndex }, { it.order })).map { it.layer }
 
         return NxprcDocument(
             manifest = NxprcManifest(
@@ -611,7 +683,7 @@ object NxprcCompiler {
         if (buttons.isNotEmpty()) return buttons[0]
 
         // 2. Class names matching button keywords
-        val keywords = listOf("btn", "button", "pad", "nexpad", "control", "key", "trigger", "action", "circle")
+        val keywords = listOf("btn", "button", "pad", "nexpad", "control", "key", "trigger", "action", "circle", "dpad", "stick", "thumb", "bumper", "wedge", "switch", "knob", "hud")
         val candidates = mutableListOf<DomNode>()
         fun scan(node: DomNode) {
             if (node.classNames.any { cls -> keywords.any { kw -> cls.contains(kw, ignoreCase = true) } }) {
@@ -634,14 +706,5 @@ object NxprcCompiler {
 
     private fun matchesNode(node: DomNode, sel: CssSelector): Boolean {
         return CssCascadeResolver.matchesNode(node, sel)
-    }
-
-    private fun extractInlineStylesheets(html: String): String {
-        val sb = StringBuilder()
-        val m = Pattern.compile("style=[\"']([^\"']+)[\"']").matcher(html)
-        while (m.find()) {
-            sb.append(m.group(1)).append(";\n")
-        }
-        return sb.toString()
     }
 }

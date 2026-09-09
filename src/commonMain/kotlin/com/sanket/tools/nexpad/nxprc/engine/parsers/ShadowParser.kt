@@ -89,6 +89,12 @@ object ShadowParser {
         if (paren.find()) return paren.group(0)
         val hex = Pattern.compile("#[0-9a-fA-F]{3,8}\\b").matcher(text)
         if (hex.find()) return hex.group(0)
+        // Check named CSS colors
+        val lower = text.lowercase()
+        for (name in ColorParser.NAMED_COLORS.keys) {
+            val idx = lower.indexOf(name)
+            if (idx >= 0) return text.substring(idx, idx + name.length)
+        }
         return null
     }
 }

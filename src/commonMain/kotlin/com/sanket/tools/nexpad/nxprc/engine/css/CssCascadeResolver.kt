@@ -1,7 +1,6 @@
 package com.sanket.tools.nexpad.nxprc.engine.css
 
 import com.sanket.tools.nexpad.nxprc.engine.dom.DomNode
-import java.util.regex.Pattern
 
 data class ComputedElementStyle(
     val base: Map<String, String>,
@@ -97,21 +96,26 @@ object CssCascadeResolver {
 
     private fun resolveVariables(decls: Map<String, String>, customProps: Map<String, String>): Map<String, String> {
         val resolved = mutableMapOf<String, String>()
-        val varPattern = Pattern.compile("var\\s*\\(\\s*(--[a-zA-Z0-9_-]+)(?:\\s*,\\s*([^)]+))?\\s*\\)")
-
         for ((prop, rawVal) in decls) {
-            var v = rawVal
-            val m = varPattern.matcher(v)
-            val sb = StringBuffer()
-            while (m.find()) {
-                val varName = m.group(1)
-                val fallback = m.group(2)?.trim() ?: ""
-                val replacement = customProps[varName] ?: decls[varName] ?: fallback
-                m.appendReplacement(sb, java.util.regex.Matcher.quoteReplacement(replacement))
-            }
-            m.appendTail(sb)
-            resolved[prop] = sb.toString()
+            resolved[prop] = resolveVarExpressions(rawVal, customProps, decls)
         }
         return resolved
+    }
+
+    private fun resolveVarExpressions(value: String, customProps: Map<String, String>, decls: Map<String, String>): String {
+        var result = value
+        var maxIter = 10 // Prevent infinite recursion on circular references
+        while (result.contains("var(") && maxIter-- > 0) {
+            // Match innermost var() — no nested parens inside
+            val regex = Regex("""var\s*\(\s*(--[a-zA-Z0-9_-]+)(?:\s*,\s*([^()]+))?\s*\)""")
+            val replaced = regex.replace(result) { match ->
+                val varName = match.groupValues[1]
+                val fallback = match.groupValues[2].trim()
+                customProps[varName] ?: decls[varName] ?: fallback
+            }
+            if (replaced == result) break // No further substitutions possible
+            result = replaced
+        }
+        return result
     }
 }

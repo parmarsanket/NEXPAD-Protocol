@@ -48,7 +48,12 @@ object CssTokenizer {
             i = closeBrace + 1
 
             if (selectorPart.startsWith("@")) {
-                // Ignore @media, @import
+                // For @media or @supports, parse inner body recursively to extract rules
+                if (selectorPart.startsWith("@media") || selectorPart.startsWith("@supports")) {
+                    val innerSheet = parse(bodyPart)
+                    rules.addAll(innerSheet.rules)
+                    innerSheet.customProperties.forEach { (k, v) -> customProperties.putIfAbsent(k, v) }
+                }
                 continue
             }
 
