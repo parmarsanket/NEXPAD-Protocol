@@ -943,4 +943,190 @@ class NxprcEngineTest {
         assertTrue(errors.isEmpty(), "Concurrent compilations had errors: ${errors.map { it.message }}")
         assertEquals(25, docs.size)
     }
+
+    @Test
+    fun testCompositingStrategyAutoSelection() {
+        // 1. Opaque single-fill -> AUTO
+        val htmlAuto = """
+            <style>.btn-box { width: 80px; height: 80px; background: #ff0000; }</style>
+            <button class="btn-box" data-primitive="box"><span>A</span></button>
+        """.trimIndent()
+        val docAuto = NxprcPackager.compile(htmlAuto)
+        val boxAuto = docAuto.canvas.layers.filterIsInstance<CanvasLayer.BoxLayer>().first()
+        assertEquals(CompositingStrategy.AUTO, boxAuto.effectiveEffects.compositingStrategy)
+
+        // 2. Opacity < 1 single-fill -> MODULATE_ALPHA
+        val htmlMod = """
+            <style>.btn-box { width: 80px; height: 80px; background: #ff0000; opacity: 0.7; }</style>
+            <button class="btn-box" data-primitive="box"><span>A</span></button>
+        """.trimIndent()
+        val docMod = NxprcPackager.compile(htmlMod)
+        val boxMod = docMod.canvas.layers.filterIsInstance<CanvasLayer.BoxLayer>().first()
+        assertEquals(CompositingStrategy.MODULATE_ALPHA, boxMod.effectiveEffects.compositingStrategy)
+
+        // 3. Opacity < 1 multi-fill -> OFFSCREEN
+        val htmlOff = """
+            <style>.btn-box { width: 80px; height: 80px; background: linear-gradient(#f00, #0f0), radial-gradient(#00f, #fff); opacity: 0.5; }</style>
+            <button class="btn-box" data-primitive="box"><span>A</span></button>
+        """.trimIndent()
+        val docOff = NxprcPackager.compile(htmlOff)
+        val boxOff = docOff.canvas.layers.filterIsInstance<CanvasLayer.BoxLayer>().first()
+        assertEquals(CompositingStrategy.OFFSCREEN, boxOff.effectiveEffects.compositingStrategy)
+    }
+
+    @Test
+    fun testLayerOutsetsFromBoxShadows() {
+        val html = """
+            <style>
+                .btn-box {
+                    width: 80px; height: 80px;
+                    box-shadow: 5px 15px 20px 4px rgba(0,0,0,0.5);
+                }
+            </style>
+            <button class="btn-box" data-primitive="box"><span>A</span></button>
+        """.trimIndent()
+        val doc = NxprcPackager.compile(html)
+        val box = doc.canvas.layers.filterIsInstance<CanvasLayer.BoxLayer>().first()
+        val outsets = box.effectiveEffects.layerOutsets
+        assertTrue(outsets.hasOutsets)
+        // reach = 20 + 4 = 24.
+        // bottom = reach + offsetY = 24 + 15 = 39.
+        // right = reach + offsetX = 24 + 5 = 29.
+        assertEquals(39f, outsets.bottom)
+        assertEquals(29f, outsets.right)
+        assertEquals(19f, outsets.left)
+        assertEquals(9f, outsets.top)
+    }
+
+    @Test
+    fun testRenderEffectDefFromCssBlur() {
+        val html = """
+            <style>.btn-box { width: 80px; height: 80px; filter: blur(6px); }</style>
+            <button class="btn-box" data-primitive="box"><span>A</span></button>
+        """.trimIndent()
+        val doc = NxprcPackager.compile(html)
+        val box = doc.canvas.layers.filterIsInstance<CanvasLayer.BoxLayer>().first()
+        val f = box.effectiveEffects.filter
+        assertEquals(6f, f.blurRadius)
+        assertEquals(6f, f.renderEffect.blurRadiusX)
+        assertEquals(6f, f.renderEffect.blurRadiusY)
+        assertEquals("CLAMP", f.renderEffect.tileMode)
+    }
+
+    @Test
+    fun testDrawCacheHintForStaticLayers() {
+        val htmlStatic = """
+            <style>.btn-box { width: 80px; height: 80px; background: #112233; }</style>
+            <button class="btn-box" data-primitive="box"><span>A</span></button>
+        """.trimIndent()
+        val docStatic = NxprcPackager.compile(htmlStatic)
+        val boxStatic = docStatic.canvas.layers.filterIsInstance<CanvasLayer.BoxLayer>().first()
+        assertTrue(boxStatic.effectiveEffects.drawCacheHint, "Static layer should have drawCacheHint = true")
+
+        val htmlAnimated = """
+            <style>
+                @keyframes spin { 100% { transform: rotate(360deg); } }
+                .btn-box { width: 80px; height: 80px; background: #112233; animation: spin 2s infinite linear; }
+            </style>
+            <button class="btn-box" data-primitive="box"><span>A</span></button>
+        """.trimIndent()
+        val docAnimated = NxprcPackager.compile(htmlAnimated)
+        val boxAnimated = docAnimated.canvas.layers.filterIsInstance<CanvasLayer.BoxLayer>().first()
+        assertTrue(!boxAnimated.effectiveEffects.drawCacheHint, "Rotating layer should have drawCacheHint = false")
+    }
+
+    @Test
+    fun testClipToBoundsNotAutoSetForCircular() {
+        val htmlCircular = """
+            <style>.b { width: 80px; height: 80px; border-radius: 50%; background: #222; }</style>
+            <button class="b"><span>A</span></button>
+        """.trimIndent()
+        val docCircular = NxprcPackager.compile(htmlCircular)
+        assertTrue(!docCircular.canvas.clipToBounds, "border-radius: 50% should not force clipToBounds on canvas")
+
+        val htmlOverflowHidden = """
+            <style>.b { width: 80px; height: 80px; border-radius: 50%; overflow: hidden; background: #222; }</style>
+            <button class="b"><span>A</span></button>
+        """.trimIndent()
+        val docOverflow = NxprcPackager.compile(htmlOverflowHidden)
+        assertTrue(docOverflow.canvas.clipToBounds, "overflow: hidden should force clipToBounds")
+    }
+
+    @Test
+    fun testCanvasOutsetsUnionOfLayerOutsets() {
+        val html = """
+            <style>
+                .b {
+                    width: 80px; height: 80px;
+                    box-shadow: 0 10px 20px rgba(0,0,0,0.6);
+                }
+            </style>
+            <button class="b"><span>A</span></button>
+        """.trimIndent()
+        val doc = NxprcPackager.compile(html)
+        assertTrue(doc.canvas.canvasOutsets.hasOutsets, "canvasOutsets should reflect layer shadow outsets")
+        assertEquals(30f, doc.canvas.canvasOutsets.bottom) // reach(20) + offsetY(10)
+    }
+
+    @Test
+    fun testBackwardCompatV1Deserialization() {
+        // Construct a raw minimal v1 payload that lacks all v2 fields:
+        // version: 1, no canvasOutsets, no compositingStrategy, no layerOutsets, no renderEffect
+        val v1Json = """
+            {
+                "version": 1,
+                "manifest": {
+                    "id": "rc.v1_btn",
+                    "name": "V1 Button",
+                    "author": "Legacy",
+                    "version": "1.0.0",
+                    "category": "BUTTON",
+                    "defaultControl": "A",
+                    "widthDp": 76,
+                    "heightDp": 76,
+                    "description": ""
+                },
+                "canvas": {
+                    "viewBoxWidth": 100.0,
+                    "viewBoxHeight": 100.0,
+                    "layers": [
+                        {
+                            "type": "BoxLayer",
+                            "shapeType": "ROUNDED_RECT",
+                            "cornerRadiusTopLeft": 14.0,
+                            "cornerRadiusTopRight": 14.0,
+                            "cornerRadiusBottomRight": 14.0,
+                            "cornerRadiusBottomLeft": 14.0,
+                            "widthRatio": 1.0,
+                            "heightRatio": 1.0,
+                            "clipToBounds": false,
+                            "fill": { "type": "Solid", "color": -16711936 },
+                            "opacity": 0.8
+                        }
+                    ],
+                    "clipToBounds": false
+                },
+                "animations": {}
+            }
+        """.trimIndent()
+
+        val jsonBytes = v1Json.encodeToByteArray()
+        val buffer = java.nio.ByteBuffer.allocate(10 + jsonBytes.size)
+            .order(java.nio.ByteOrder.BIG_ENDIAN)
+            .put(NxprcDocument.MAGIC)
+            .putShort(1.toShort()) // v1
+            .putInt(jsonBytes.size)
+            .put(jsonBytes)
+            .array()
+
+        val decoded = NxprcDocument.decodeFromBytes(buffer).getOrThrow()
+        assertEquals(1, decoded.version)
+        assertEquals("rc.v1_btn", decoded.manifest.id)
+        // Check new fields have default values
+        assertEquals(LayerOutsets(), decoded.canvas.canvasOutsets)
+        val layer = decoded.canvas.layers.first() as CanvasLayer.BoxLayer
+        assertEquals(CompositingStrategy.AUTO, layer.effectiveEffects.compositingStrategy)
+        assertEquals(LayerOutsets(), layer.effectiveEffects.layerOutsets)
+        assertEquals(RenderEffectDef(), layer.effectiveEffects.filter.renderEffect)
+    }
 }

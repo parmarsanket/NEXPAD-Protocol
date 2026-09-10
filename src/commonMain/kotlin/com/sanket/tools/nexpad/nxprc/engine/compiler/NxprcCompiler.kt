@@ -15,8 +15,61 @@ private data class LayerEntry(val stackIndex: Int, val order: Int, val layer: Ca
 private fun ParsedFilter.toFilterDef(): FilterDef = FilterDef(
     blurRadius = blurRadiusPx,
     brightness = brightness,
-    saturation = saturate
+    saturation = saturate,
+    renderEffect = if (blurRadiusPx > 0f) {
+        RenderEffectDef(
+            blurRadiusX = blurRadiusPx,
+            blurRadiusY = blurRadiusPx,
+            tileMode = "CLAMP"
+        )
+    } else RenderEffectDef()
 )
+
+private fun computeCompositingStrategy(
+    opacity: Float,
+    hasMultipleFillsOrChildren: Boolean = false,
+    hasFilter: Boolean = false
+): CompositingStrategy {
+    return when {
+        opacity < 1.0f && (hasMultipleFillsOrChildren || hasFilter) -> CompositingStrategy.OFFSCREEN
+        opacity < 1.0f -> CompositingStrategy.MODULATE_ALPHA
+        hasFilter -> CompositingStrategy.OFFSCREEN
+        else -> CompositingStrategy.AUTO
+    }
+}
+
+private fun computeShadowOutsets(boxShadows: List<BoxShadowDef>): LayerOutsets {
+    var maxLeft = 0f
+    var maxTop = 0f
+    var maxRight = 0f
+    var maxBottom = 0f
+
+    for (shadow in boxShadows) {
+        if (shadow.isInset) continue
+        val reach = shadow.blurRadius + shadow.spreadRadius
+        if (reach <= 0f && shadow.offsetX == 0f && shadow.offsetY == 0f) continue
+        maxLeft = maxOf(maxLeft, reach - shadow.offsetX)
+        maxRight = maxOf(maxRight, reach + shadow.offsetX)
+        maxTop = maxOf(maxTop, reach - shadow.offsetY)
+        maxBottom = maxOf(maxBottom, reach + shadow.offsetY)
+    }
+
+    return LayerOutsets(
+        left = maxOf(0f, maxLeft),
+        top = maxOf(0f, maxTop),
+        right = maxOf(0f, maxRight),
+        bottom = maxOf(0f, maxBottom)
+    )
+}
+
+private fun computeGlowOutsets(glowRadius: Float): LayerOutsets {
+    return LayerOutsets(
+        left = glowRadius,
+        top = glowRadius,
+        right = glowRadius,
+        bottom = glowRadius
+    )
+}
 
 /**
  * High-Level Multiplatform Compiler: Transforms HTML/CSS/SVG markup into native .nxprc documents.
@@ -108,6 +161,15 @@ object NxprcCompiler {
             buttonHeight
         )
 
+        val baseFilterDef = baseFilter.toFilterDef()
+        val baseRotating = AnimationParser.isRotatingAnimation(stylesheet, baseProps)
+        val baseOutsets = computeShadowOutsets(allBoxShadows)
+        val baseStrategy = computeCompositingStrategy(
+            opacity = baseOpacity,
+            hasMultipleFillsOrChildren = allFills.size > 1,
+            hasFilter = baseFilterDef.blurRadius > 0f || baseFilterDef.brightness != 1f || baseFilterDef.saturation != 1f
+        )
+
         if (isBoxPrimitive) {
             addLayer(
                 10,
@@ -126,7 +188,7 @@ object NxprcCompiler {
                     fills = allFills.reversed(),
                     stroke = border,
                     boxShadows = allBoxShadows,
-                    filter = baseFilter.toFilterDef(),
+                    filter = baseFilterDef,
                     opacity = baseOpacity,
                     rotationDegrees = baseTransform.rotationDegrees,
                     offsetXRatio = baseTransform.translateX / buttonWidth,
@@ -137,7 +199,14 @@ object NxprcCompiler {
                     skewY = baseTransform.skewY,
                     originXRatio = baseTransform.originXRatio,
                     originYRatio = baseTransform.originYRatio,
-                    isRotating = AnimationParser.isRotatingAnimation(stylesheet, baseProps)
+                    isRotating = baseRotating,
+                    effects = EffectsDef(
+                        opacity = baseOpacity,
+                        filter = baseFilterDef,
+                        compositingStrategy = baseStrategy,
+                        layerOutsets = baseOutsets,
+                        drawCacheHint = !baseRotating
+                    )
                 )
             )
         } else {
@@ -169,7 +238,7 @@ object NxprcCompiler {
                             pathData = path,
                             fill = if (index == 0) allFills.first() else FillBrush.Solid(0x00000000L),
                             stroke = border,
-                            isRotating = AnimationParser.isRotatingAnimation(stylesheet, baseProps)
+                            isRotating = baseRotating
                         )
                     )
                 }
@@ -183,7 +252,7 @@ object NxprcCompiler {
                             cornerRadius = radii.topLeft,
                             fill = fillBrush,
                             stroke = if (index == allFills.size - 1) border else null,
-                            filter = baseFilter.toFilterDef(),
+                            filter = baseFilterDef,
                             opacity = baseOpacity,
                             rotationDegrees = baseTransform.rotationDegrees,
                             offsetXRatio = baseTransform.translateX / buttonWidth,
@@ -191,7 +260,14 @@ object NxprcCompiler {
                             scaleX = baseTransform.scaleX,
                             scaleY = baseTransform.scaleY,
                             originXRatio = baseTransform.originXRatio,
-                            originYRatio = baseTransform.originYRatio
+                            originYRatio = baseTransform.originYRatio,
+                            effects = EffectsDef(
+                                opacity = baseOpacity,
+                                filter = baseFilterDef,
+                                compositingStrategy = baseStrategy,
+                                layerOutsets = baseOutsets,
+                                drawCacheHint = !baseRotating
+                            )
                         )
                     )
                 }
@@ -278,6 +354,13 @@ object NxprcCompiler {
                 beforeHeight
             )
             val beforeShadows = beforeStyle["box-shadow"]?.let { ShadowParser.parseBoxShadows(it) } ?: emptyList()
+            val beforeFilterDef = beforeFilter.toFilterDef()
+            val beforeOutsets = computeShadowOutsets(beforeShadows)
+            val beforeStrategy = computeCompositingStrategy(
+                opacity = beforeOpacity,
+                hasMultipleFillsOrChildren = beforeBgs.size > 1,
+                hasFilter = beforeFilterDef.blurRadius > 0f || beforeFilterDef.brightness != 1f || beforeFilterDef.saturation != 1f
+            )
 
             if (isBoxPrimitive && (beforeBgs.isNotEmpty() || beforeBorder != null || beforeShadows.isNotEmpty())) {
                 addLayer(
@@ -297,7 +380,7 @@ object NxprcCompiler {
                         fills = beforeBgs.reversed(),
                         stroke = beforeBorder,
                         boxShadows = beforeShadows,
-                        filter = beforeFilter.toFilterDef(),
+                        filter = beforeFilterDef,
                         opacity = beforeOpacity,
                         rotationDegrees = beforeTransform.rotationDegrees,
                         offsetXRatio = (beforeLeft + beforeTransform.translateX) / buttonWidth,
@@ -307,7 +390,14 @@ object NxprcCompiler {
                         skewX = beforeTransform.skewX,
                         skewY = beforeTransform.skewY,
                         originXRatio = beforeTransform.originXRatio,
-                        originYRatio = beforeTransform.originYRatio
+                        originYRatio = beforeTransform.originYRatio,
+                        effects = EffectsDef(
+                            opacity = beforeOpacity,
+                            filter = beforeFilterDef,
+                            compositingStrategy = beforeStrategy,
+                            layerOutsets = beforeOutsets,
+                            drawCacheHint = true
+                        )
                     )
                 )
             } else {
@@ -319,7 +409,7 @@ object NxprcCompiler {
                             cornerRadius = beforeRadii.topLeft,
                             fill = bg,
                             stroke = if (index == beforeBgs.size - 1) beforeBorder else null,
-                            filter = beforeFilter.toFilterDef(),
+                            filter = beforeFilterDef,
                             opacity = beforeOpacity,
                             rotationDegrees = beforeTransform.rotationDegrees,
                             offsetXRatio = beforeTransform.translateX / buttonWidth,
@@ -329,7 +419,14 @@ object NxprcCompiler {
                             scaleX = beforeTransform.scaleX,
                             scaleY = beforeTransform.scaleY,
                             originXRatio = beforeTransform.originXRatio,
-                            originYRatio = beforeTransform.originYRatio
+                            originYRatio = beforeTransform.originYRatio,
+                            effects = EffectsDef(
+                                opacity = beforeOpacity,
+                                filter = beforeFilterDef,
+                                compositingStrategy = beforeStrategy,
+                                layerOutsets = beforeOutsets,
+                                drawCacheHint = true
+                            )
                         )
                     )
                 }
@@ -427,6 +524,13 @@ object NxprcCompiler {
                 val clipChild = childStyle["overflow"] == "hidden" || cClip != null || isParentClipping
 
                 if (cFills.isNotEmpty() || cBorder != null || cShadows.isNotEmpty()) {
+                    val cFilterDef = cFilter.toFilterDef()
+                    val cOutsets = computeShadowOutsets(cShadows)
+                    val cStrategy = computeCompositingStrategy(
+                        opacity = cOpacity,
+                        hasMultipleFillsOrChildren = cFills.size > 1,
+                        hasFilter = cFilterDef.blurRadius > 0f || cFilterDef.brightness != 1f || cFilterDef.saturation != 1f
+                    )
                     addLayer(
                         childStack,
                         CanvasLayer.BoxLayer(
@@ -444,7 +548,7 @@ object NxprcCompiler {
                             fills = cFills.reversed(),
                             stroke = cBorder,
                             boxShadows = cShadows,
-                            filter = cFilter.toFilterDef(),
+                            filter = cFilterDef,
                             opacity = cOpacity,
                             rotationDegrees = cTransform.rotationDegrees,
                             offsetXRatio = (globalX + cTransform.translateX) / buttonWidth,
@@ -454,7 +558,14 @@ object NxprcCompiler {
                             skewX = cTransform.skewX,
                             skewY = cTransform.skewY,
                             originXRatio = cTransform.originXRatio,
-                            originYRatio = cTransform.originYRatio
+                            originYRatio = cTransform.originYRatio,
+                            effects = EffectsDef(
+                                opacity = cOpacity,
+                                filter = cFilterDef,
+                                compositingStrategy = cStrategy,
+                                layerOutsets = cOutsets,
+                                drawCacheHint = true
+                            )
                         )
                     )
                 }
@@ -558,6 +669,14 @@ object NxprcCompiler {
             val afterZ = GeometryParser.parseZIndex(afterStyle)
             val afterStack = 70 + afterZ * 10
 
+            val afterFilterDef = afterFilter.toFilterDef()
+            val afterOutsets = computeShadowOutsets(afterShadows)
+            val afterStrategy = computeCompositingStrategy(
+                opacity = afterOpacity,
+                hasMultipleFillsOrChildren = afterBgs.size > 1,
+                hasFilter = afterFilterDef.blurRadius > 0f || afterFilterDef.brightness != 1f || afterFilterDef.saturation != 1f
+            )
+
             if (isBoxPrimitive && (afterBgs.isNotEmpty() || afterBorder != null || afterShadows.isNotEmpty())) {
                 addLayer(
                     afterStack,
@@ -576,7 +695,7 @@ object NxprcCompiler {
                         fills = afterBgs.reversed(),
                         stroke = afterBorder,
                         boxShadows = afterShadows,
-                        filter = afterFilter.toFilterDef(),
+                        filter = afterFilterDef,
                         opacity = afterOpacity,
                         rotationDegrees = afterTransform.rotationDegrees,
                         offsetXRatio = (afterLeft + afterTransform.translateX) / buttonWidth,
@@ -586,7 +705,14 @@ object NxprcCompiler {
                         skewX = afterTransform.skewX,
                         skewY = afterTransform.skewY,
                         originXRatio = afterTransform.originXRatio,
-                        originYRatio = afterTransform.originYRatio
+                        originYRatio = afterTransform.originYRatio,
+                        effects = EffectsDef(
+                            opacity = afterOpacity,
+                            filter = afterFilterDef,
+                            compositingStrategy = afterStrategy,
+                            layerOutsets = afterOutsets,
+                            drawCacheHint = true
+                        )
                     )
                 )
             } else if (afterBgs.isNotEmpty()) {
@@ -598,7 +724,7 @@ object NxprcCompiler {
                             cornerRadius = radii.topLeft,
                             fill = bg,
                             stroke = if (index == afterBgs.size - 1) afterBorder else null,
-                            filter = afterFilter.toFilterDef(),
+                            filter = afterFilterDef,
                             opacity = afterOpacity,
                             rotationDegrees = afterTransform.rotationDegrees,
                             offsetXRatio = afterTransform.translateX / buttonWidth,
@@ -608,7 +734,14 @@ object NxprcCompiler {
                             scaleX = afterTransform.scaleX,
                             scaleY = afterTransform.scaleY,
                             originXRatio = afterTransform.originXRatio,
-                            originYRatio = afterTransform.originYRatio
+                            originYRatio = afterTransform.originYRatio,
+                            effects = EffectsDef(
+                                opacity = afterOpacity,
+                                filter = afterFilterDef,
+                                compositingStrategy = afterStrategy,
+                                layerOutsets = afterOutsets,
+                                drawCacheHint = true
+                            )
                         )
                     )
                 }
@@ -727,7 +860,23 @@ object NxprcCompiler {
         }
 
         val overflow = baseProps["overflow"]?.trim()?.lowercase()
-        val clipToBounds = overflow == "hidden" || rootClip != null || baseProps["border-radius"]?.contains("50%") == true || radii.topLeft >= (buttonWidth * 0.4f)
+        val clipToBounds = overflow == "hidden" || rootClip != null
+
+        var totalCanvasOutsets = LayerOutsets()
+        for (entry in layerEntries) {
+            when (val layer = entry.layer) {
+                is CanvasLayer.BoxLayer -> {
+                    totalCanvasOutsets += layer.effectiveEffects.layerOutsets
+                }
+                is CanvasLayer.GradientShape -> {
+                    totalCanvasOutsets += layer.effectiveEffects.layerOutsets
+                }
+                is CanvasLayer.GlowRing -> {
+                    totalCanvasOutsets += computeGlowOutsets(layer.blurRadius * 1.5f)
+                }
+                else -> {}
+            }
+        }
 
         val layers = layerEntries.sortedWith(compareBy({ it.stackIndex }, { it.order })).map { it.layer }
 
@@ -745,7 +894,8 @@ object NxprcCompiler {
                 viewBoxWidth = buttonWidth,
                 viewBoxHeight = buttonHeight,
                 layers = layers,
-                clipToBounds = clipToBounds
+                clipToBounds = clipToBounds,
+                canvasOutsets = totalCanvasOutsets
             ),
             animations = NxprcAnimations(
                 idleType = idleType,

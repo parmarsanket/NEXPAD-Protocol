@@ -11,7 +11,7 @@ import kotlinx.serialization.Serializable
  */
 @Serializable
 data class NxprcDocument(
-    val version: Int = 1,
+    val version: Int = 2,
     val manifest: NxprcManifest,
     val canvas: NxprcCanvas = NxprcCanvas(),
     val animations: NxprcAnimations = NxprcAnimations()
@@ -38,11 +38,44 @@ data class NxprcManifest(
 )
 
 @Serializable
+enum class CompositingStrategy {
+    AUTO,
+    OFFSCREEN,
+    MODULATE_ALPHA
+}
+
+@Serializable
+data class LayerOutsets(
+    val left: Float = 0f,
+    val top: Float = 0f,
+    val right: Float = 0f,
+    val bottom: Float = 0f
+) {
+    val hasOutsets: Boolean
+        get() = left > 0f || top > 0f || right > 0f || bottom > 0f
+
+    operator fun plus(other: LayerOutsets): LayerOutsets = LayerOutsets(
+        left = maxOf(left, other.left),
+        top = maxOf(top, other.top),
+        right = maxOf(right, other.right),
+        bottom = maxOf(bottom, other.bottom)
+    )
+}
+
+@Serializable
+data class RenderEffectDef(
+    val blurRadiusX: Float = 0f,
+    val blurRadiusY: Float = 0f,
+    val tileMode: String = "CLAMP"
+)
+
+@Serializable
 data class NxprcCanvas(
     val viewBoxWidth: Float = 100f,
     val viewBoxHeight: Float = 100f,
     val layers: List<CanvasLayer> = emptyList(),
-    val clipToBounds: Boolean = false
+    val clipToBounds: Boolean = false,
+    val canvasOutsets: LayerOutsets = LayerOutsets()
 )
 
 @Serializable
@@ -60,7 +93,8 @@ data class BoxShadowDef(
 data class FilterDef(
     val blurRadius: Float = 0f,
     val brightness: Float = 1f,
-    val saturation: Float = 1f
+    val saturation: Float = 1f,
+    val renderEffect: RenderEffectDef = RenderEffectDef()
 )
 
 @Serializable
@@ -92,7 +126,10 @@ data class TransformDef(
 @Serializable
 data class EffectsDef(
     val opacity: Float = 1.0f,
-    val filter: FilterDef = FilterDef()
+    val filter: FilterDef = FilterDef(),
+    val compositingStrategy: CompositingStrategy = CompositingStrategy.AUTO,
+    val layerOutsets: LayerOutsets = LayerOutsets(),
+    val drawCacheHint: Boolean = false
 )
 
 @Serializable
@@ -335,7 +372,9 @@ sealed class FillBrush {
 data class StrokeStyle(
     val color: Long,
     val width: Float = 2f,
-    val isDashed: Boolean = false
+    val isDashed: Boolean = false,
+    val dashWidth: Float = 0f,
+    val dashGap: Float = 0f
 )
 
 @Serializable
