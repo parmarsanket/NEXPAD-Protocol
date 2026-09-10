@@ -24,6 +24,10 @@ data class ParsedTransform(
  */
 object AnimationParser {
 
+    private val FUNC_PATTERN = Pattern.compile("([a-zA-Z0-9]+)\\s*\\(([^)]+)\\)")
+    private val DELIMITER_PATTERN = Pattern.compile("[,\\s]+")
+    private val NUMBER_PATTERN = Pattern.compile("(-?[0-9.]+)")
+
     fun parseTransforms(
         transformStr: String?,
         originStr: String? = null,
@@ -44,13 +48,12 @@ object AnimationParser {
         var sky = 0.0f
 
         // Tokenize all CSS transform function calls: funcName(args)
-        val funcPattern = Pattern.compile("([a-zA-Z0-9]+)\\s*\\(([^)]+)\\)")
-        val matcher = funcPattern.matcher(transformStr)
+        val matcher = FUNC_PATTERN.matcher(transformStr)
 
         while (matcher.find()) {
             val func = matcher.group(1).lowercase()
             val rawArgs = matcher.group(2).trim()
-            val args = rawArgs.split(Pattern.compile("[,\\s]+")).map { it.trim() }.filter { it.isNotEmpty() }
+            val args = rawArgs.split(DELIMITER_PATTERN).map { it.trim() }.filter { it.isNotEmpty() }
 
             when (func) {
                 "scale" -> {
@@ -145,7 +148,7 @@ object AnimationParser {
 
     fun parseOrigin(originStr: String?, width: Float = 100f, height: Float = 100f): Pair<Float, Float> {
         if (originStr.isNullOrBlank()) return Pair(0.5f, 0.5f)
-        val parts = originStr.trim().split(Pattern.compile("[,\\s]+")).map { it.trim() }.filter { it.isNotEmpty() }
+        val parts = originStr.trim().split(DELIMITER_PATTERN).map { it.trim() }.filter { it.isNotEmpty() }
         if (parts.isEmpty()) return Pair(0.5f, 0.5f)
 
         fun parseSingleCoord(s: String, dim: Float): Float {
@@ -166,7 +169,7 @@ object AnimationParser {
     }
 
     private fun parseNumber(s: String): Float? {
-        val m = Pattern.compile("(-?[0-9.]+)").matcher(s)
+        val m = NUMBER_PATTERN.matcher(s)
         return if (m.find()) m.group(1).toFloatOrNull() else null
     }
 

@@ -170,6 +170,8 @@ object ColorParser {
 
     private val PAREN_COLOR_PATTERN = Pattern.compile("(?:rgba?|hsla?)\\([^)]+\\)", Pattern.CASE_INSENSITIVE)
     private val HEX_COLOR_PATTERN = Pattern.compile("#([0-9a-fA-F]{3,8})\\b")
+    private val DELIMITER_PATTERN = Pattern.compile("[,\\s]+")
+    private val WORD_SPLIT_PATTERN = Pattern.compile("[^a-z0-9_-]+")
 
     fun parse(str: String?): Long? {
         if (str == null) return null
@@ -234,7 +236,7 @@ object ColorParser {
         val alphaPart = if (slashParts.size > 1) slashParts[1].trim() else null
 
         // Tokens in color part can be comma or whitespace delimited
-        val tokens = colorPart.split(Pattern.compile("[,\\s]+")).map { it.trim() }.filter { it.isNotEmpty() }
+        val tokens = colorPart.split(DELIMITER_PATTERN).map { it.trim() }.filter { it.isNotEmpty() }
         if (tokens.size < 3) return null
 
         fun parseChannel(tok: String): Int {
@@ -265,7 +267,7 @@ object ColorParser {
         val colorPart = slashParts[0].trim()
         val alphaPart = if (slashParts.size > 1) slashParts[1].trim() else null
 
-        val tokens = colorPart.split(Pattern.compile("[,\\s]+")).map { it.trim() }.filter { it.isNotEmpty() }
+        val tokens = colorPart.split(DELIMITER_PATTERN).map { it.trim() }.filter { it.isNotEmpty() }
         if (tokens.size < 3) return null
 
         // Hue
@@ -314,7 +316,7 @@ object ColorParser {
             parse(hexMatcher.group(0))?.let { return it }
         }
         // Check named colors (match whole words or tokens)
-        val tokens = text.lowercase().split(Pattern.compile("[^a-z0-9_-]+"))
+        val tokens = text.lowercase().split(WORD_SPLIT_PATTERN)
         for (tok in tokens) {
             NAMED_COLORS[tok]?.let { return it }
         }

@@ -20,23 +20,33 @@ object HtmlDomParser {
         "circle", "rect", "polygon", "polyline", "line"
     )
 
+    private val STYLE_PATTERN = Pattern.compile("<style[^>]*>([\\s\\S]*?)</style>", Pattern.CASE_INSENSITIVE)
+    private val STRIP_TAG_REGEX = Regex("<[^>]+>")
+    private val COMMENT_REGEX = Regex("<!--[\\s\\S]*?-->")
+    private val DOCTYPE_REGEX = Regex("<!DOCTYPE[^>]*>", RegexOption.IGNORE_CASE)
+    private val HEAD_REGEX = Regex("<head[\\s\\S]*?</head>", RegexOption.IGNORE_CASE)
+    private val SCRIPT_REGEX = Regex("<script[\\s\\S]*?</script>", RegexOption.IGNORE_CASE)
+    private val STYLE_BLOCK_REGEX = Regex("<style[\\s\\S]*?</style>", RegexOption.IGNORE_CASE)
+    private val TAG_PATTERN = Pattern.compile("<(/?)([a-zA-Z0-9_-]+)((?:\\s+[^>]+)?)(/?)>|([^<]+)")
+    private val ATTR_PATTERN = Pattern.compile("([a-zA-Z0-9_-]+)(?:\\s*=\\s*(?:([\"'])([\\s\\S]*?)\\2|([^\\s>]+)))?")
+    private val WHITESPACE_REGEX = Regex("\\s+")
+
     fun parse(html: String): ParsedHtmlResult {
         // 1. Extract embedded <style> blocks and sanitize stray tags
         val styleSb = StringBuilder()
-        val stylePattern = Pattern.compile("<style[^>]*>([\\s\\S]*?)</style>", Pattern.CASE_INSENSITIVE)
-        val sm = stylePattern.matcher(html)
+        val sm = STYLE_PATTERN.matcher(html)
         while (sm.find()) {
-            val content = sm.group(1).replace(Regex("<[^>]+>"), "")
+            val content = sm.group(1).replace(STRIP_TAG_REGEX, "")
             styleSb.append(content).append("\n")
         }
 
         // Clean out <head>, <script>, <style> for DOM parsing
         val bodyContent = html
-            .replace(Regex("<!--[\\s\\S]*?-->"), "")
-            .replace(Regex("<!DOCTYPE[^>]*>", RegexOption.IGNORE_CASE), "")
-            .replace(Regex("<head[\\s\\S]*?</head>", RegexOption.IGNORE_CASE), "")
-            .replace(Regex("<script[\\s\\S]*?</script>", RegexOption.IGNORE_CASE), "")
-            .replace(Regex("<style[\\s\\S]*?</style>", RegexOption.IGNORE_CASE), "")
+            .replace(COMMENT_REGEX, "")
+            .replace(DOCTYPE_REGEX, "")
+            .replace(HEAD_REGEX, "")
+            .replace(SCRIPT_REGEX, "")
+            .replace(STYLE_BLOCK_REGEX, "")
             .trim()
 
         val root = DomNode(tag = "root")
@@ -44,8 +54,7 @@ object HtmlDomParser {
         var current: DomNode = root
 
         // Tokenize tags and text
-        val tagPattern = Pattern.compile("<(/?)([a-zA-Z0-9_-]+)((?:\\s+[^>]+)?)(/?)>|([^<]+)")
-        val matcher = tagPattern.matcher(bodyContent)
+        val matcher = TAG_PATTERN.matcher(bodyContent)
 
         while (matcher.find()) {
             val isClosing = matcher.group(1) == "/"
@@ -69,7 +78,7 @@ object HtmlDomParser {
                 } else {
                     val attrs = parseAttributes(rawAttrs)
                     val id = attrs["id"]
-                    val classNames = attrs["class"]?.split(Regex("\\s+"))?.filter { it.isNotBlank() } ?: emptyList()
+                    val classNames = attrs["class"]?.split(WHITESPACE_REGEX)?.filter { it.isNotBlank() } ?: emptyList()
                     val inlineStyles = attrs["style"]?.let { parseInlineStyles(it) } ?: emptyMap()
 
                     val node = DomNode(
@@ -97,11 +106,10 @@ object HtmlDomParser {
 
     private fun parseAttributes(raw: String): Map<String, String> {
         val attrs = mutableMapOf<String, String>()
-        val attrPattern = Pattern.compile("([a-zA-Z0-9_-]+)(?:\\s*=\\s*([\"'])([\\s\\S]*?)\\2)?")
-        val m = attrPattern.matcher(raw)
+        val m = ATTR_PATTERN.matcher(raw)
         while (m.find()) {
             val key = m.group(1).lowercase()
-            val value = m.group(3) ?: ""
+            val value = m.group(3) ?: m.group(4) ?: ""
             attrs[key] = value
         }
         return attrs

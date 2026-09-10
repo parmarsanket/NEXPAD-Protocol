@@ -859,4 +859,88 @@ class NxprcEngineTest {
         assertEquals("'url(foo,bar)'", splitList[1])
         assertEquals("#333", splitList[2])
     }
+
+    @Test
+    fun testUnquotedHtmlAttributes() {
+        val html = """
+            <button class=nexpad-btn id=my_btn data-control=X data-category=BUTTON>
+                <span>X</span>
+            </button>
+        """.trimIndent()
+        val parsed = HtmlDomParser.parse(html)
+        val btn = parsed.root.findByTag("button").first()
+        assertEquals("my_btn", btn.id)
+        assertTrue(btn.classNames.contains("nexpad-btn"))
+        assertEquals("X", btn.attributes["data-control"])
+
+        val doc = NxprcPackager.compile(html)
+        assertEquals("X", doc.manifest.defaultControl)
+        assertEquals("rc.my_btn", doc.manifest.id)
+    }
+
+    @Test
+    fun testNestedCssVariablesWithFallbacks() {
+        val css = """
+            :root {
+                --theme-accent: var(--custom-accent, var(--fallback-accent, #00ffaa));
+            }
+            .themed-btn {
+                background: var(--theme-accent);
+            }
+        """.trimIndent()
+        val sheet = com.sanket.tools.nexpad.nxprc.engine.css.CssTokenizer.parse(css)
+        val node = com.sanket.tools.nexpad.nxprc.engine.dom.DomNode("button", classNames = listOf("themed-btn"))
+        val style = com.sanket.tools.nexpad.nxprc.engine.css.CssCascadeResolver.computeStyle(node, sheet).base
+        assertEquals("#00ffaa", style["background"])
+    }
+
+    @Test
+    fun testEightDigitHexColorParsing() {
+        // CSS #RRGGBBAA -> Compose 0xAARRGGBB
+        val color = com.sanket.tools.nexpad.nxprc.engine.parsers.ColorParser.parse("#11223344")
+        assertNotNull(color)
+        val a = (color shr 24) and 0xFFL
+        val r = (color shr 16) and 0xFFL
+        val g = (color shr 8) and 0xFFL
+        val b = color and 0xFFL
+        assertEquals(0x44L, a, "Alpha channel from #RRGGBBAA")
+        assertEquals(0x11L, r, "Red channel from #RRGGBBAA")
+        assertEquals(0x22L, g, "Green channel from #RRGGBBAA")
+        assertEquals(0x33L, b, "Blue channel from #RRGGBBAA")
+    }
+
+    @Test
+    fun testConcurrentDocumentCompilation() {
+        val threads = mutableListOf<Thread>()
+        val errors = java.util.concurrent.CopyOnWriteArrayList<Throwable>()
+        val docs = java.util.concurrent.CopyOnWriteArrayList<NxprcDocument>()
+
+        val template = """
+            <style>
+              .btn-%d { width: 90px; height: 90px; border-radius: 50%%; background: #%06x; }
+            </style>
+            <button class="btn-%d" data-control="A"><span>A</span></button>
+        """.trimIndent()
+
+        for (i in 1..25) {
+            val t = Thread {
+                try {
+                    val html = String.format(template, i, (i * 0x050505) and 0xFFFFFF, i)
+                    val doc = NxprcPackager.compile(html, id = "rc.concurrent_$i", name = "Button $i")
+                    val bytes = NxprcDocument.encodeToBytes(doc)
+                    val decoded = NxprcDocument.decodeFromBytes(bytes).getOrThrow()
+                    docs.add(decoded)
+                } catch (t: Throwable) {
+                    errors.add(t)
+                }
+            }
+            threads.add(t)
+        }
+
+        threads.forEach { it.start() }
+        threads.forEach { it.join() }
+
+        assertTrue(errors.isEmpty(), "Concurrent compilations had errors: ${errors.map { it.message }}")
+        assertEquals(25, docs.size)
+    }
 }

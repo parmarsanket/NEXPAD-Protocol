@@ -707,6 +707,7 @@ object NxprcCompiler {
             ?: name
 
         val autoId = primaryNode.attributes["data-id"]
+            ?: primaryNode.id
             ?: parsed.root.attributes["data-id"]
             ?: id
 

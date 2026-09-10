@@ -7,6 +7,12 @@ package com.sanket.tools.nexpad.nxprc.engine.css
  */
 object CssTokenizer {
 
+    private val KEYFRAMES_REGEX = Regex("@(?:-[a-zA-Z]+-)?keyframes\\s+([a-zA-Z0-9_-]+)\\s*\\{")
+    private val MIN_WIDTH_REGEX = Regex("min-width\\s*:\\s*([0-9.]+)px", RegexOption.IGNORE_CASE)
+    private val MAX_WIDTH_REGEX = Regex("max-width\\s*:\\s*([0-9.]+)px", RegexOption.IGNORE_CASE)
+    private val COMMENT_REGEX = Regex("/\\*[\\s\\S]*?\\*/")
+    private val IMPORTANT_REGEX = Regex("\\s*!important\\s*$", RegexOption.IGNORE_CASE)
+
     /**
      * Parse the supported CSS subset. Conditional blocks are ignored unless a
      * viewport width is supplied; this prevents mobile/page rules from
@@ -20,8 +26,7 @@ object CssTokenizer {
 
         // 1. Extract @keyframes using proper brace matching
         var cssWithoutKeyframes = clean
-        val kfRegex = Regex("@(?:-[a-zA-Z]+-)?keyframes\\s+([a-zA-Z0-9_-]+)\\s*\\{")
-        var match = kfRegex.find(cssWithoutKeyframes)
+        var match = KEYFRAMES_REGEX.find(cssWithoutKeyframes)
         while (match != null) {
             val name = match.groupValues[1]
             val openBrace = match.range.last
@@ -31,7 +36,7 @@ object CssTokenizer {
                 val steps = parseKeyframeSteps(body)
                 keyframesMap[name] = CssKeyframes(name = name, steps = steps)
                 cssWithoutKeyframes = cssWithoutKeyframes.substring(0, match.range.first) + cssWithoutKeyframes.substring(closeBrace + 1)
-                match = kfRegex.find(cssWithoutKeyframes)
+                match = KEYFRAMES_REGEX.find(cssWithoutKeyframes)
             } else {
                 break
             }
@@ -92,15 +97,13 @@ object CssTokenizer {
 
     private fun mediaMatches(selector: String, viewportWidth: Float?): Boolean {
         val width = viewportWidth ?: return false
-        val min = Regex("min-width\\s*:\\s*([0-9.]+)px", RegexOption.IGNORE_CASE)
-            .find(selector)?.groupValues?.get(1)?.toFloatOrNull()
-        val max = Regex("max-width\\s*:\\s*([0-9.]+)px", RegexOption.IGNORE_CASE)
-            .find(selector)?.groupValues?.get(1)?.toFloatOrNull()
+        val min = MIN_WIDTH_REGEX.find(selector)?.groupValues?.get(1)?.toFloatOrNull()
+        val max = MAX_WIDTH_REGEX.find(selector)?.groupValues?.get(1)?.toFloatOrNull()
         return (min == null || width >= min) && (max == null || width <= max)
     }
 
     private fun stripComments(css: String): String {
-        return css.replace(Regex("/\\*[\\s\\S]*?\\*/"), "")
+        return css.replace(COMMENT_REGEX, "")
     }
 
     private fun findMatchingBrace(text: String, openPos: Int): Int {
@@ -125,7 +128,7 @@ object CssTokenizer {
                 val prop = part.substring(0, colonIdx).trim().lowercase()
                 val value = part.substring(colonIdx + 1).trim()
                 if (prop.isNotBlank() && value.isNotBlank()) {
-                    decls[prop] = value.replace(Regex("\\s*!important\\s*$", RegexOption.IGNORE_CASE), "").trim()
+                    decls[prop] = value.replace(IMPORTANT_REGEX, "").trim()
                 }
             }
         }

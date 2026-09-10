@@ -24,6 +24,8 @@ data class CssSelector(
     val specificity: Int = 0
 ) {
     companion object {
+        private val CLASS_REGEX = Regex("\\.([a-zA-Z0-9_-]+)")
+
         fun parse(rawSelector: String): CssSelector {
             var s = rawSelector.trim()
             var pseudoEl: String? = null
@@ -92,7 +94,7 @@ data class CssSelector(
                 specificity += 1
             }
 
-            val parsedClasses = Regex("\\.([a-zA-Z0-9_-]+)")
+            val parsedClasses = CLASS_REGEX
                 .findAll(s)
                 .map { it.groupValues[1] }
                 .toList()

@@ -15,6 +15,8 @@ data class ComputedElementStyle(
  */
 object CssCascadeResolver {
 
+    private val INNER_VAR_REGEX = Regex("""var\s*\(\s*(--[a-zA-Z0-9_-]+)(?:\s*,\s*([^()]+))?\s*\)""")
+
     fun computeStyle(node: DomNode, stylesheet: CssStylesheet): ComputedElementStyle {
         val baseRules = mutableListOf<Pair<Int, Map<String, String>>>()
         val activeRules = mutableListOf<Pair<Int, Map<String, String>>>()
@@ -114,9 +116,7 @@ object CssCascadeResolver {
         var result = value
         var maxIter = 10 // Prevent infinite recursion on circular references
         while (result.contains("var(") && maxIter-- > 0) {
-            // Match innermost var() — no nested parens inside
-            val regex = Regex("""var\s*\(\s*(--[a-zA-Z0-9_-]+)(?:\s*,\s*([^()]+))?\s*\)""")
-            val replaced = regex.replace(result) { match ->
+            val replaced = INNER_VAR_REGEX.replace(result) { match ->
                 val varName = match.groupValues[1]
                 val fallback = match.groupValues[2].trim()
                 customProps[varName] ?: decls[varName] ?: fallback

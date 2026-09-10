@@ -16,6 +16,9 @@ data class ParsedFilter(
  */
 object FilterParser {
 
+    private val FUNC_PATTERN = Pattern.compile("([a-zA-Z0-9_-]+)\\s*\\(([^)]+)\\)")
+    private val NUM_PX_PATTERN = Pattern.compile("([0-9.]+)\\s*(px)?")
+
     fun parse(filterStr: String?): ParsedFilter {
         if (filterStr.isNullOrBlank() || filterStr.trim().equals("none", ignoreCase = true)) {
             return ParsedFilter()
@@ -25,8 +28,7 @@ object FilterParser {
         var brightness = 1.0f
         var saturate = 1.0f
 
-        val funcPattern = Pattern.compile("([a-zA-Z0-9_-]+)\\s*\\(([^)]+)\\)")
-        val matcher = funcPattern.matcher(filterStr)
+        val matcher = FUNC_PATTERN.matcher(filterStr)
 
         while (matcher.find()) {
             val func = matcher.group(1).lowercase()
@@ -34,7 +36,7 @@ object FilterParser {
 
             when (func) {
                 "blur" -> {
-                    val numMatcher = Pattern.compile("([0-9.]+)\\s*(px)?").matcher(arg)
+                    val numMatcher = NUM_PX_PATTERN.matcher(arg)
                     if (numMatcher.find()) {
                         blur = numMatcher.group(1).toFloatOrNull() ?: 0f
                     }

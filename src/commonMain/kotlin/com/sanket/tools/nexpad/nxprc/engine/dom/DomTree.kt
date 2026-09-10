@@ -16,8 +16,8 @@ class DomNode(
     override fun hashCode(): Int = nodeIndex
 
     companion object {
-        private var counter = 0
-        private fun nextNodeIndex(): Int = ++counter
+        private val counter = java.util.concurrent.atomic.AtomicInteger(0)
+        private fun nextNodeIndex(): Int = counter.incrementAndGet()
     }
 
     fun findByTag(tagName: String): List<DomNode> {

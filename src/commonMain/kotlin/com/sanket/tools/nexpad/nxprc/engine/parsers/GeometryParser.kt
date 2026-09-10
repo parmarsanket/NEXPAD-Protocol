@@ -33,11 +33,17 @@ data class ComputedBoxBounds(
  */
 object GeometryParser {
 
+    private val INSET_PATTERN = Pattern.compile("(-?\\d+(?:\\.\\d+)?)(?:px|%)?")
+    private val BORDER_WIDTH_PATTERN = Pattern.compile("(\\d+(?:\\.\\d+)?)(?:px)?")
+    private val RADIUS_PATTERN = Pattern.compile("(\\d+(?:\\.\\d+)?)(?:px|%)?")
+    private val PX_PATTERN = Pattern.compile("(-?\\d+(?:\\.\\d+)?)(?:px)?")
+    private val WHITESPACE_PATTERN = Pattern.compile("\\s+")
+
     fun parseInset(insetStr: String?, parentWidth: Float, parentHeight: Float): InsetRect? {
         if (insetStr.isNullOrBlank()) return null
         val clean = insetStr.trim()
         val values = mutableListOf<Float>()
-        val matcher = Pattern.compile("(-?\\d+(?:\\.\\d+)?)(?:px|%)?").matcher(clean)
+        val matcher = INSET_PATTERN.matcher(clean)
         while (matcher.find()) {
             val num = matcher.group(1).toFloatOrNull() ?: 0f
             val token = clean.substring(matcher.start(), matcher.end())
@@ -104,7 +110,7 @@ object GeometryParser {
         val color = ColorParser.extractColorAnywhere(borderStr) ?: 0xFF00F0FFL
 
         var width = 2.0f
-        val wMatcher = Pattern.compile("(\\d+(?:\\.\\d+)?)(?:px)?").matcher(borderStr)
+        val wMatcher = BORDER_WIDTH_PATTERN.matcher(borderStr)
         if (wMatcher.find()) {
             width = wMatcher.group(1).toFloatOrNull() ?: 2.0f
         }
@@ -124,7 +130,7 @@ object GeometryParser {
 
         val partBeforeSlash = clean.split("/").first().trim()
         val values = mutableListOf<Float>()
-        val numMatcher = Pattern.compile("(\\d+(?:\\.\\d+)?)(?:px|%)?").matcher(partBeforeSlash)
+        val numMatcher = RADIUS_PATTERN.matcher(partBeforeSlash)
         while (numMatcher.find()) {
             val num = numMatcher.group(1).toFloatOrNull() ?: 0f
             val isPct = partBeforeSlash.substring(numMatcher.start(), numMatcher.end()).contains("%")
@@ -148,7 +154,7 @@ object GeometryParser {
             val pct = clean.removeSuffix("%").toFloatOrNull() ?: return fallback
             return (pct / 100f) * parentDim
         }
-        val m = Pattern.compile("(-?\\d+(?:\\.\\d+)?)(?:px)?").matcher(clean)
+        val m = PX_PATTERN.matcher(clean)
         return if (m.find()) m.group(1).toFloatOrNull() ?: fallback else fallback
     }
 
@@ -192,7 +198,7 @@ object GeometryParser {
                 val vertices = mutableListOf<Pair<Float, Float>>()
 
                 for (pair in pairs) {
-                    val tokens = pair.split(Pattern.compile("\\s+")).filter { it.isNotEmpty() }
+                    val tokens = pair.split(WHITESPACE_PATTERN).filter { it.isNotEmpty() }
                     if (tokens.size >= 2) {
                         val xRatio = parseCoordRatio(tokens[0], width)
                         val yRatio = parseCoordRatio(tokens[1], height)
