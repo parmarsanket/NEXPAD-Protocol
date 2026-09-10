@@ -7,7 +7,12 @@ package com.sanket.tools.nexpad.nxprc.engine.css
  */
 object CssTokenizer {
 
-    fun parse(cssText: String): CssStylesheet {
+    /**
+     * Parse the supported CSS subset. Conditional blocks are ignored unless a
+     * viewport width is supplied; this prevents mobile/page rules from
+     * silently overriding a standalone NEXPAD control.
+     */
+    fun parse(cssText: String, viewportWidth: Float? = null): CssStylesheet {
         val clean = stripComments(cssText)
         val rules = mutableListOf<CssRule>()
         val keyframesMap = mutableMapOf<String, CssKeyframes>()
@@ -49,8 +54,8 @@ object CssTokenizer {
 
             if (selectorPart.startsWith("@")) {
                 // For @media or @supports, parse inner body recursively to extract rules
-                if (selectorPart.startsWith("@media") || selectorPart.startsWith("@supports")) {
-                    val innerSheet = parse(bodyPart)
+                if (selectorPart.startsWith("@media") && mediaMatches(selectorPart, viewportWidth)) {
+                    val innerSheet = parse(bodyPart, viewportWidth)
                     rules.addAll(innerSheet.rules)
                     innerSheet.customProperties.forEach { (k, v) -> customProperties.putIfAbsent(k, v) }
                 }
@@ -85,6 +90,15 @@ object CssTokenizer {
         )
     }
 
+    private fun mediaMatches(selector: String, viewportWidth: Float?): Boolean {
+        val width = viewportWidth ?: return false
+        val min = Regex("min-width\\s*:\\s*([0-9.]+)px", RegexOption.IGNORE_CASE)
+            .find(selector)?.groupValues?.get(1)?.toFloatOrNull()
+        val max = Regex("max-width\\s*:\\s*([0-9.]+)px", RegexOption.IGNORE_CASE)
+            .find(selector)?.groupValues?.get(1)?.toFloatOrNull()
+        return (min == null || width >= min) && (max == null || width <= max)
+    }
+
     private fun stripComments(css: String): String {
         return css.replace(Regex("/\\*[\\s\\S]*?\\*/"), "")
     }
@@ -111,26 +125,34 @@ object CssTokenizer {
                 val prop = part.substring(0, colonIdx).trim().lowercase()
                 val value = part.substring(colonIdx + 1).trim()
                 if (prop.isNotBlank() && value.isNotBlank()) {
-                    decls[prop] = value
+                    decls[prop] = value.replace(Regex("\\s*!important\\s*$", RegexOption.IGNORE_CASE), "").trim()
                 }
             }
         }
         return decls
     }
 
-    private fun splitDeclarations(body: String): List<String> {
+    fun splitDeclarations(body: String): List<String> {
         val list = mutableListOf<String>()
         var start = 0
         var parenDepth = 0
+        var inSingleQuote = false
+        var inDoubleQuote = false
 
         for (i in body.indices) {
             val c = body[i]
-            if (c == '(') parenDepth++
-            else if (c == ')') parenDepth--
-            else if (c == ';' && parenDepth == 0) {
-                val stmt = body.substring(start, i).trim()
-                if (stmt.isNotBlank()) list.add(stmt)
-                start = i + 1
+            if (c == '\'' && !inDoubleQuote) {
+                inSingleQuote = !inSingleQuote
+            } else if (c == '"' && !inSingleQuote) {
+                inDoubleQuote = !inDoubleQuote
+            } else if (!inSingleQuote && !inDoubleQuote) {
+                if (c == '(') parenDepth++
+                else if (c == ')') parenDepth--
+                else if (c == ';' && parenDepth == 0) {
+                    val stmt = body.substring(start, i).trim()
+                    if (stmt.isNotBlank()) list.add(stmt)
+                    start = i + 1
+                }
             }
         }
         if (start < body.length) {

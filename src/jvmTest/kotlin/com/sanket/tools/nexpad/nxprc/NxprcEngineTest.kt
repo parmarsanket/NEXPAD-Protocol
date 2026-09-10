@@ -4,13 +4,35 @@ import com.sanket.tools.nexpad.nxprc.engine.compiler.NxprcCompiler
 import com.sanket.tools.nexpad.nxprc.engine.parsers.AnimationParser
 import com.sanket.tools.nexpad.nxprc.engine.parsers.FilterParser
 import com.sanket.tools.nexpad.nxprc.engine.parsers.GradientParser
+import com.sanket.tools.nexpad.nxprc.engine.parsers.ShadowParser
+import com.sanket.tools.nexpad.nxprc.engine.dom.HtmlDomParser
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFails
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class NxprcEngineTest {
+
+    @Test
+    fun testNxprcInputValidationAndMalformedHeader() {
+        assertFails { NxprcPackager.compile("   ") }
+        assertFails { NxprcPackager.compile("<button>A</button>", id = "x".repeat(129)) }
+
+        val malformed = ByteArray(10)
+        malformed[0] = 'N'.code.toByte()
+        malformed[1] = 'X'.code.toByte()
+        malformed[2] = 'R'.code.toByte()
+        malformed[3] = 'C'.code.toByte()
+        // Valid magic/version, negative payload length.
+        malformed[5] = 1
+        malformed[6] = 0xFF.toByte()
+        malformed[7] = 0xFF.toByte()
+        malformed[8] = 0xFF.toByte()
+        malformed[9] = 0xFF.toByte()
+        assertTrue(NxprcDocument.decodeFromBytes(malformed).isFailure)
+    }
 
     @Test
     fun testFilterParser() {
@@ -25,6 +47,65 @@ class NxprcEngineTest {
         assertEquals(2.5f, f3.blurRadiusPx)
         assertEquals(1.2f, f3.brightness, 0.01f)
         assertEquals(1.3f, f3.saturate, 0.01f)
+    }
+
+    @Test
+    fun testFiltersSurviveCompilationAndBinaryRoundTrip() {
+        val html = """
+            <style>
+              .filter-btn {
+                width: 80px;
+                height: 80px;
+                background: #204060;
+                filter: blur(4px) brightness(1.2) saturate(1.3);
+              }
+              .filter-btn::before {
+                content: "";
+                position: absolute;
+                inset: 8px;
+                background: #ff00aa;
+                filter: brightness(0.8) saturate(0.5);
+              }
+            </style>
+            <button class="filter-btn" data-primitive="box">F</button>
+        """.trimIndent()
+
+        val document = NxprcCompiler.compile(html, "rc.filter_test", "Filter Test")
+        val boxLayers = document.canvas.layers.filterIsInstance<CanvasLayer.BoxLayer>()
+        assertTrue(boxLayers.isNotEmpty())
+
+        val root = boxLayers.first { it.widthRatio == 1f && it.heightRatio == 1f }
+        assertEquals(4f, root.filter.blurRadius)
+        assertEquals(1.2f, root.filter.brightness, 0.01f)
+        assertEquals(1.3f, root.filter.saturation, 0.01f)
+
+        val before = boxLayers.first { it !== root }
+        assertEquals(0f, before.filter.blurRadius)
+        assertEquals(0.8f, before.filter.brightness, 0.01f)
+        assertEquals(0.5f, before.filter.saturation, 0.01f)
+
+        val decoded = NxprcDocument.decodeFromBytes(NxprcDocument.encodeToBytes(document)).getOrThrow()
+        val decodedRoot = decoded.canvas.layers.filterIsInstance<CanvasLayer.BoxLayer>()
+            .first { it.widthRatio == 1f && it.heightRatio == 1f }
+        assertEquals(root.filter, decodedRoot.filter)
+    }
+
+    @Test
+    fun testConditionalMediaRulesDoNotOverrideStandaloneButtonByDefault() {
+        val css = """
+            .button { width: 96px; height: 96px; }
+            @media (max-width: 480px) { .button { width: 80px; height: 80px; } }
+        """.trimIndent()
+        val defaultSheet = com.sanket.tools.nexpad.nxprc.engine.css.CssTokenizer.parse(css)
+        val defaultStyle = com.sanket.tools.nexpad.nxprc.engine.css.CssCascadeResolver.computeStyle(
+            com.sanket.tools.nexpad.nxprc.engine.dom.DomNode("div", classNames = listOf("button")),
+            defaultSheet
+        ).base
+        assertEquals("96px", defaultStyle["width"])
+        assertEquals("80px", com.sanket.tools.nexpad.nxprc.engine.css.CssCascadeResolver.computeStyle(
+            com.sanket.tools.nexpad.nxprc.engine.dom.DomNode("div", classNames = listOf("button")),
+            com.sanket.tools.nexpad.nxprc.engine.css.CssTokenizer.parse(css, viewportWidth = 360f)
+        ).base["width"])
     }
 
     @Test
@@ -707,5 +788,75 @@ class NxprcEngineTest {
         assertEquals(0.5f, shape.originXRatio, 0.01f)
         assertEquals(0.5f, shape.originYRatio, 0.01f)
     }
-}
 
+    @Test
+    fun testAnimeButtonParityContract() {
+        val html = """
+            <style>
+              :root { --pink: #ff6fb5; --violet: #7136c9; }
+              .nexpad-anime {
+                width: 102px; height: 102px; overflow: hidden;
+                border-radius: 28% 28% 42% 42% / 28% 28% 42% 42%;
+                background: radial-gradient(circle at 50% 47%, #fff4fb 0%, var(--pink) 15%, #d9348e 37%, var(--violet) 64%, #35145f 84%, #120719 100%), linear-gradient(135deg, rgba(255,255,255,.16), transparent 36%, rgba(0,0,0,.30));
+                box-shadow: 0 5px 4px rgba(0,0,0,.58), 0 24px 36px rgba(0,0,0,.25), inset 0 -11px 17px rgba(14,0,25,.75);
+                transform: rotate(-3deg) skewX(0deg);
+              }
+              .nexpad-anime::before { content: ""; left: 7px; top: 7px; right: 7px; bottom: 7px; position: absolute; background: radial-gradient(circle, rgba(255,84,174,.18), transparent 53%); }
+              .nexpad-anime:active { transform: scale(.93) translateY(3px) rotate(-3deg); }
+              .btn-label { font-size: 41px; color: rgba(255,248,252,.98); text-shadow: 0 1px 0 #fff, 0 5px 7px rgba(0,0,0,.56); }
+            </style>
+            <button class="nexpad-anime" data-control="A" data-category="BUTTON" data-name="Action A"><span class="btn-label">A</span></button>
+        """.trimIndent()
+
+        val doc = NxprcPackager.compile(html, id = "", name = "", defaultControl = "A")
+        val root = doc.canvas.layers.filterIsInstance<CanvasLayer.BoxLayer>().first()
+        val glyph = doc.canvas.layers.filterIsInstance<CanvasLayer.CenterGlyph>().first()
+
+        assertEquals(102, doc.manifest.widthDp)
+        assertEquals(102, doc.manifest.heightDp)
+        assertEquals("rc.nexpad_anime", doc.manifest.id)
+        assertEquals("Action A", doc.manifest.name)
+        assertEquals("ROUNDED_RECT", root.shapeType, "Asymmetric percentage radii must stay chamfered, not become an oval")
+        assertTrue(root.fills.size >= 2)
+        assertEquals(3f, doc.animations.pressOffsetY, 0.01f)
+        assertEquals(0.93f, doc.animations.pressScale, 0.01f)
+        assertEquals(41f, glyph.fontSizeSp, 0.01f)
+        assertTrue(doc.canvas.layers.any { it is CanvasLayer.BoxLayer && it.widthRatio < 1f }, "::before must retain its inset bounds")
+    }
+
+    @Test
+    fun testNxprcEngineBugFixes() {
+        // 1. Test inline styles containing semicolons within quotes and data URLs
+        val inlineHtml = """
+            <button style='content: "key;pad"; background: url("data:image/png;base64,iVBOR;w0KGgo="); color: #ffffff;'>
+                <span>B</span>
+            </button>
+        """.trimIndent()
+        val parsedDom = HtmlDomParser.parse(inlineHtml)
+        val buttonNode = parsedDom.root.findByTag("button").first()
+        assertEquals("\"key;pad\"", buttonNode.inlineStyles["content"])
+        assertEquals("url(\"data:image/png;base64,iVBOR;w0KGgo=\")", buttonNode.inlineStyles["background"])
+        assertEquals("#ffffff", buttonNode.inlineStyles["color"])
+
+        // 2. Test ShadowParser with named color
+        val namedShadows = ShadowParser.parseBoxShadows("0 4px 12px crimson")
+        assertEquals(1, namedShadows.size)
+        assertEquals(0xFFDC143CL, namedShadows[0].color)
+        assertEquals(0f, namedShadows[0].offsetX, 0.01f)
+        assertEquals(4f, namedShadows[0].offsetY, 0.01f)
+        assertEquals(12f, namedShadows[0].blurRadius, 0.01f)
+
+        // 3. Test ShadowParser does NOT false-positive match 'tan' in other text or substrings
+        val rgbaShadows = ShadowParser.parseBoxShadows("0 2px 5px rgba(0,0,0,0.4)")
+        assertEquals(1, rgbaShadows.size)
+        val alphaChannel = ((rgbaShadows[0].color shr 24) and 0xFFL).toInt()
+        assertTrue(alphaChannel in 100..105, "Alpha should be ~0.4 * 255")
+
+        // 4. Test GradientParser.splitTopLevelCommas with quoted values
+        val splitList = GradientParser.splitTopLevelCommas("linear-gradient(45deg, #111, #222), 'url(foo,bar)', #333")
+        assertEquals(3, splitList.size)
+        assertEquals("linear-gradient(45deg, #111, #222)", splitList[0])
+        assertEquals("'url(foo,bar)'", splitList[1])
+        assertEquals("#333", splitList[2])
+    }
+}

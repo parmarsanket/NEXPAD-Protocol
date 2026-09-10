@@ -15,10 +15,12 @@ data class CssSelector(
     val raw: String,
     val tag: String? = null,
     val className: String? = null,
+    val classNames: List<String> = emptyList(),
     val id: String? = null,
     val pseudoClass: String? = null,
     val pseudoElement: String? = null,
     val ancestorSelector: CssSelector? = null,
+    val ancestorCombinator: String = " ",
     val specificity: Int = 0
 ) {
     companion object {
@@ -43,16 +45,28 @@ data class CssSelector(
             }
 
             var ancestorSelector: CssSelector? = null
+            var ancestorCombinator = " "
             var specificity = 0
 
+            // Handle child selector: e.g. ".button-a > span"
+            if (s.contains(">")) {
+                val split = s.lastIndexOf('>')
+                val ancestorPart = s.substring(0, split).trim()
+                s = s.substring(split + 1).trim()
+                if (ancestorPart.isNotBlank()) {
+                    ancestorSelector = parse(ancestorPart)
+                    ancestorCombinator = ">"
+                    specificity += ancestorSelector.specificity
+                }
             // Handle descendant selector: e.g. ".button-a span"
-            if (s.contains(" ")) {
+            } else if (s.contains(" ")) {
                 val lastSpace = s.lastIndexOf(' ')
                 val ancestorPart = s.substring(0, lastSpace).trim()
                 s = s.substring(lastSpace + 1).trim()
                 if (ancestorPart.isNotBlank()) {
                     val parsedAncestor = parse(ancestorPart)
                     ancestorSelector = parsedAncestor
+                    ancestorCombinator = " "
                     specificity += parsedAncestor.specificity
                 }
             }
@@ -78,6 +92,15 @@ data class CssSelector(
                 specificity += 1
             }
 
+            val parsedClasses = Regex("\\.([a-zA-Z0-9_-]+)")
+                .findAll(s)
+                .map { it.groupValues[1] }
+                .toList()
+            if (parsedClasses.isNotEmpty()) {
+                className = parsedClasses.first()
+                specificity += 10 * (parsedClasses.size - 1)
+            }
+
             if (pseudoEl != null) specificity += 1
             if (pseudoCl != null) specificity += 10
 
@@ -85,10 +108,12 @@ data class CssSelector(
                 raw = rawSelector,
                 tag = tag,
                 className = className,
+                classNames = parsedClasses,
                 id = id,
                 pseudoClass = pseudoCl,
                 pseudoElement = pseudoEl,
                 ancestorSelector = ancestorSelector,
+                ancestorCombinator = ancestorCombinator,
                 specificity = specificity
             )
         }

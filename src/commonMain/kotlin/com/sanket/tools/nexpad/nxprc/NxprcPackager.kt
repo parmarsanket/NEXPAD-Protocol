@@ -22,6 +22,8 @@ object NxprcPackager {
         category: String = "BUTTON",
         defaultControl: String = "A"
     ): NxprcDocument {
+        NxprcInputValidator.validateHtml(html)
+        NxprcInputValidator.validateMetadata(id, name)
         return NxprcCompiler.compile(
             html = html,
             id = id,

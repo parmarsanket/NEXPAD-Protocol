@@ -1,5 +1,6 @@
 package com.sanket.tools.nexpad.nxprc.engine.dom
 
+import com.sanket.tools.nexpad.nxprc.engine.css.CssTokenizer
 import java.util.regex.Pattern
 
 data class ParsedHtmlResult(
@@ -15,7 +16,8 @@ data class ParsedHtmlResult(
 object HtmlDomParser {
 
     private val SELF_CLOSING = setOf(
-        "path", "circle", "rect", "polygon", "polyline", "line", "img", "br", "hr", "input", "meta", "link"
+        "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "path", "source", "track", "wbr",
+        "circle", "rect", "polygon", "polyline", "line"
     )
 
     fun parse(html: String): ParsedHtmlResult {
@@ -30,12 +32,15 @@ object HtmlDomParser {
 
         // Clean out <head>, <script>, <style> for DOM parsing
         val bodyContent = html
+            .replace(Regex("<!--[\\s\\S]*?-->"), "")
+            .replace(Regex("<!DOCTYPE[^>]*>", RegexOption.IGNORE_CASE), "")
             .replace(Regex("<head[\\s\\S]*?</head>", RegexOption.IGNORE_CASE), "")
             .replace(Regex("<script[\\s\\S]*?</script>", RegexOption.IGNORE_CASE), "")
             .replace(Regex("<style[\\s\\S]*?</style>", RegexOption.IGNORE_CASE), "")
             .trim()
 
         val root = DomNode(tag = "root")
+        val stack = mutableListOf(root)
         var current: DomNode = root
 
         // Tokenize tags and text
@@ -56,8 +61,10 @@ object HtmlDomParser {
                 }
             } else if (tagName != null) {
                 if (isClosing) {
-                    if (current.parent != null && current.tag.equals(tagName, ignoreCase = true)) {
-                        current = current.parent!!
+                    val openIndex = stack.indexOfLast { it.tag.equals(tagName, ignoreCase = true) }
+                    if (openIndex > 0) {
+                        while (stack.size > openIndex) stack.removeAt(stack.lastIndex)
+                        current = stack.last()
                     }
                 } else {
                     val attrs = parseAttributes(rawAttrs)
@@ -76,6 +83,7 @@ object HtmlDomParser {
                     current.children.add(node)
 
                     if (!selfClose) {
+                        stack.add(node)
                         current = node
                     }
                 }
@@ -101,18 +109,6 @@ object HtmlDomParser {
     }
 
     private fun parseInlineStyles(body: String): Map<String, String> {
-        val decls = mutableMapOf<String, String>()
-        val parts = body.split(";")
-        for (part in parts) {
-            val colonIdx = part.indexOf(':')
-            if (colonIdx > 0) {
-                val prop = part.substring(0, colonIdx).trim().lowercase()
-                val value = part.substring(colonIdx + 1).trim()
-                if (prop.isNotBlank() && value.isNotBlank()) {
-                    decls[prop] = value
-                }
-            }
-        }
-        return decls
+        return CssTokenizer.parseDeclarations(body)
     }
 }

@@ -95,20 +95,20 @@ object AnimationParser {
                 }
                 "translate" -> {
                     if (args.isNotEmpty()) {
-                        tx += parseDimension(args[0])
+                            tx += parseDimension(args[0], width)
                         if (args.size > 1) {
-                            ty += parseDimension(args[1])
+                            ty += parseDimension(args[1], height)
                         }
                     }
                 }
                 "translatex" -> {
                     if (args.isNotEmpty()) {
-                        tx += parseDimension(args[0])
+                        tx += parseDimension(args[0], width)
                     }
                 }
                 "translatey" -> {
                     if (args.isNotEmpty()) {
-                        ty += parseDimension(args[0])
+                        ty += parseDimension(args[0], height)
                     }
                 }
                 "matrix" -> {
@@ -118,8 +118,8 @@ object AnimationParser {
                         val b = parseNumber(args[1]) ?: 0f
                         val c = parseNumber(args[2]) ?: 0f
                         val d = parseNumber(args[3]) ?: 1f
-                        val e = parseDimension(args[4])
-                        val f = parseDimension(args[5])
+                        val e = parseDimension(args[4], width)
+                        val f = parseDimension(args[5], height)
                         sx *= kotlin.math.sqrt(a * a + b * b)
                         sy *= kotlin.math.sqrt(c * c + d * d)
                         rot += Math.toDegrees(kotlin.math.atan2(b.toDouble(), a.toDouble())).toFloat()
@@ -181,12 +181,12 @@ object AnimationParser {
         }
     }
 
-    private fun parseDimension(s: String): Float {
+    private fun parseDimension(s: String, reference: Float = 100f): Float {
         val clean = s.trim().lowercase()
         val num = parseNumber(clean) ?: 0.0f
         return when {
             clean.endsWith("px") -> num
-            clean.endsWith("%") -> num
+            clean.endsWith("%") -> (num / 100f) * reference
             clean.endsWith("em") || clean.endsWith("rem") -> num * 16f
             else -> num
         }

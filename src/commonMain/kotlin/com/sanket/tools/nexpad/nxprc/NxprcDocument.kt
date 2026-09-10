@@ -2,10 +2,6 @@ package com.sanket.tools.nexpad.nxprc
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
 
 /**
  * Unlimited Vector Canvas & Animation Document (.nxprc).
@@ -22,56 +18,9 @@ data class NxprcDocument(
 ) {
     companion object {
         val MAGIC = byteArrayOf(0x4E, 0x58, 0x52, 0x43) // "NXRC"
-        private val json = Json {
-            ignoreUnknownKeys = true
-            isLenient = true
-            prettyPrint = false
-            encodeDefaults = true
-        }
+        fun encodeToBytes(doc: NxprcDocument): ByteArray = NxprcBinaryCodec.encode(doc)
 
-        fun encodeToBytes(doc: NxprcDocument): ByteArray {
-            val jsonBytes = json.encodeToString(doc).encodeToByteArray()
-            val buffer = ByteBuffer.allocate(4 + 2 + 4 + jsonBytes.size).order(ByteOrder.BIG_ENDIAN)
-            buffer.put(MAGIC)
-            buffer.putShort(doc.version.toShort())
-            buffer.putInt(jsonBytes.size)
-            buffer.put(jsonBytes)
-            return buffer.array()
-        }
-
-        fun decodeFromBytes(bytes: ByteArray): Result<NxprcDocument> {
-            return try {
-                if (bytes.size < 10) return Result.failure(IllegalArgumentException("File too small to be a valid .nxprc bundle"))
-                val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.BIG_ENDIAN)
-                val magic = ByteArray(4)
-                buffer.get(magic)
-                if (!magic.contentEquals(MAGIC)) {
-                    return Result.failure(IllegalArgumentException("Invalid magic header. Expected NXRC."))
-                }
-                val version = buffer.short.toInt()
-                val jsonLength = buffer.int
-                if (bytes.size < 10 + jsonLength) {
-                    return Result.failure(IllegalArgumentException("Corrupt .nxprc payload (expected $jsonLength bytes)."))
-                }
-                val jsonBytes = ByteArray(jsonLength)
-                buffer.get(jsonBytes)
-                var jsonString = jsonBytes.decodeToString()
-
-                // Compatibility layer: sanitize legacy packages if present
-                jsonString = jsonString
-                    .replace("com.sanket.tools.nexpaddesktop.plugins.CanvasLayer.", "")
-                    .replace("com.sanket.tools.nexpad.runtime.plugin.CanvasLayer.", "")
-                    .replace("com.sanket.tools.nexpad.nxprc.CanvasLayer.", "")
-                    .replace("com.sanket.tools.nexpaddesktop.plugins.FillBrush.", "")
-                    .replace("com.sanket.tools.nexpad.runtime.plugin.FillBrush.", "")
-                    .replace("com.sanket.tools.nexpad.nxprc.FillBrush.", "")
-
-                val doc = json.decodeFromString<NxprcDocument>(jsonString)
-                Result.success(doc)
-            } catch (e: Exception) {
-                Result.failure(e)
-            }
-        }
+        fun decodeFromBytes(bytes: ByteArray): Result<NxprcDocument> = NxprcBinaryCodec.decode(bytes)
     }
 }
 
@@ -102,8 +51,16 @@ data class BoxShadowDef(
     val offsetY: Float = 0f,
     val blurRadius: Float = 0f,
     val spreadRadius: Float = 0f,
-    val color: Long = 0x73000000L,
+    val color: Long = NxprcDefaults.DEFAULT_SHADOW_COLOR,
     val isInset: Boolean = false
+)
+
+/** CSS visual filter subset preserved in the NXPRC render model. */
+@Serializable
+data class FilterDef(
+    val blurRadius: Float = 0f,
+    val brightness: Float = 1f,
+    val saturation: Float = 1f
 )
 
 @Serializable
@@ -111,7 +68,7 @@ data class TextShadowDef(
     val offsetX: Float = 0f,
     val offsetY: Float = 2f,
     val blurRadius: Float = 0f,
-    val color: Long = 0x73000000L
+    val color: Long = NxprcDefaults.DEFAULT_SHADOW_COLOR
 )
 
 @Serializable
@@ -135,10 +92,11 @@ sealed class CanvasLayer {
         val widthRatio: Float = 1.0f,
         val heightRatio: Float = 1.0f,
         val clipToBounds: Boolean = false,
-        val fill: FillBrush = FillBrush.Solid(0xFF0A192FL),
+        val fill: FillBrush = FillBrush.Solid(NxprcDefaults.DEFAULT_FILL_COLOR),
         val fills: List<FillBrush> = emptyList(),
         val stroke: StrokeStyle? = null,
         val boxShadows: List<BoxShadowDef> = emptyList(),
+        val filter: FilterDef = FilterDef(),
         val opacity: Float = 1.0f,
         val rotationDegrees: Float = 0f,
         val offsetXRatio: Float = 0f,
@@ -156,8 +114,8 @@ sealed class CanvasLayer {
     @SerialName("VectorPath")
     data class VectorPath(
         val pathData: String,
-        val fill: FillBrush = FillBrush.Solid(0xFF0A192FL),
-        val stroke: StrokeStyle? = StrokeStyle(0xFF00F0FFL, 2.5f),
+        val fill: FillBrush = FillBrush.Solid(NxprcDefaults.DEFAULT_FILL_COLOR),
+        val stroke: StrokeStyle? = StrokeStyle(NxprcDefaults.DEFAULT_ACCENT_COLOR, 2.5f),
         val rotationDegrees: Float = 0f,
         val isRotating: Boolean = false,
         val offsetXRatio: Float = 0f,
@@ -170,12 +128,15 @@ sealed class CanvasLayer {
     data class GradientShape(
         val shapeType: String = "ROUNDED_RECT", // ROUNDED_RECT, OVAL, HEXAGON, OCTAGON
         val cornerRadius: Float = 14f,
-        val fill: FillBrush = FillBrush.LinearGradient(listOf(0xFF0A192FL, 0xFF003366L), 45f),
-        val stroke: StrokeStyle? = StrokeStyle(0xFF00F0FFL, 2f),
+        val fill: FillBrush = FillBrush.LinearGradient(listOf(NxprcDefaults.DEFAULT_FILL_COLOR, 0xFF003366L), 45f),
+        val stroke: StrokeStyle? = StrokeStyle(NxprcDefaults.DEFAULT_ACCENT_COLOR, 2f),
+        val filter: FilterDef = FilterDef(),
         val opacity: Float = 1.0f,
         val rotationDegrees: Float = 0f,
         val offsetXRatio: Float = 0f,
         val offsetYRatio: Float = 0f,
+        val widthRatio: Float = 1.0f,
+        val heightRatio: Float = 1.0f,
         val scaleX: Float = 1.0f,
         val scaleY: Float = 1.0f,
         val originXRatio: Float = 0.5f,
@@ -185,7 +146,7 @@ sealed class CanvasLayer {
     @Serializable
     @SerialName("GlowRing")
     data class GlowRing(
-        val glowColor: Long = 0xFF00F0FFL,
+        val glowColor: Long = NxprcDefaults.DEFAULT_ACCENT_COLOR,
         val blurRadius: Float = 14f,
         val pulseEnabled: Boolean = true
     ) : CanvasLayer()
@@ -195,7 +156,7 @@ sealed class CanvasLayer {
     data class BezelSocket(
         val outerBezelColor: Long = 0xFF1C1D24L,
         val outerBevelStroke: Long = 0xFF292A30L,
-        val shadowColor: Long = 0x73000000L,
+        val shadowColor: Long = NxprcDefaults.DEFAULT_SHADOW_COLOR,
         val insetRatio: Float = 0.04f
     ) : CanvasLayer()
 
@@ -224,9 +185,9 @@ sealed class CanvasLayer {
     data class CenterGlyph(
         val text: String? = "A",
         val fontSizeSp: Float = 22f,
-        val textColor: Long = 0xFF00F0FFL,
+        val textColor: Long = NxprcDefaults.DEFAULT_ACCENT_COLOR,
         val iconSvgPath: String? = null,
-        val iconColor: Long = 0xFF00F0FFL,
+        val iconColor: Long = NxprcDefaults.DEFAULT_ACCENT_COLOR,
         val shadowColor: Long? = null,
         val shadowOffsetY: Float = 2f,
         val highlightColor: Long? = null,

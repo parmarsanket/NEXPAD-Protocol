@@ -12,6 +12,12 @@ import java.util.regex.Pattern
 
 private data class LayerEntry(val stackIndex: Int, val order: Int, val layer: CanvasLayer)
 
+private fun ParsedFilter.toFilterDef(): FilterDef = FilterDef(
+    blurRadius = blurRadiusPx,
+    brightness = brightness,
+    saturation = saturate
+)
+
 /**
  * High-Level Multiplatform Compiler: Transforms HTML/CSS/SVG markup into native .nxprc documents.
  */
@@ -41,8 +47,10 @@ object NxprcCompiler {
         val beforeStyle = style.before
         val afterStyle = style.after
 
-        val buttonWidth = GeometryParser.parsePixelOrPercent(baseProps["width"], 100f, 96f)
-        val buttonHeight = GeometryParser.parsePixelOrPercent(baseProps["height"], 100f, 96f)
+        // Keep the document's native CSS size. The old 96dp fallback made a
+        // style without explicit dimensions silently change size in preview.
+        val buttonWidth = GeometryParser.parsePixelOrPercent(baseProps["width"], 100f, 100f).coerceAtLeast(1f)
+        val buttonHeight = GeometryParser.parsePixelOrPercent(baseProps["height"], 100f, 100f).coerceAtLeast(1f)
         val baseOpacity = baseProps["opacity"]?.toFloatOrNull() ?: 1.0f
         val baseFilter = FilterParser.parse(baseProps["filter"])
 
@@ -114,10 +122,11 @@ object NxprcCompiler {
                     widthRatio = 1.0f,
                     heightRatio = 1.0f,
                     clipToBounds = baseProps["overflow"] == "hidden" || rootClip != null,
-                    fill = allFills.firstOrNull() ?: FillBrush.Solid(0xFF0A192FL),
+                    fill = allFills.firstOrNull() ?: FillBrush.Solid(NxprcDefaults.DEFAULT_FILL_COLOR),
                     fills = allFills.reversed(),
                     stroke = border,
                     boxShadows = allBoxShadows,
+                    filter = baseFilter.toFilterDef(),
                     opacity = baseOpacity,
                     rotationDegrees = baseTransform.rotationDegrees,
                     offsetXRatio = baseTransform.translateX / buttonWidth,
@@ -137,7 +146,7 @@ object NxprcCompiler {
                 val outerBezelColor = border?.color ?: 0xFF1C1D24L
                 val ringShadow = outsetShadows.firstOrNull { it.spreadRadius > 0f }
                 val strokeColor = ringShadow?.color ?: border?.color ?: 0xFF292A30L
-                val primaryDarkShadow = outsetShadows.firstOrNull { ColorParser.isDark(it.color) }?.color ?: 0x73000000L
+                val primaryDarkShadow = outsetShadows.firstOrNull { ColorParser.isDark(it.color) }?.color ?: NxprcDefaults.DEFAULT_SHADOW_COLOR
 
                 addLayer(
                     8,
@@ -174,6 +183,7 @@ object NxprcCompiler {
                             cornerRadius = radii.topLeft,
                             fill = fillBrush,
                             stroke = if (index == allFills.size - 1) border else null,
+                            filter = baseFilter.toFilterDef(),
                             opacity = baseOpacity,
                             rotationDegrees = baseTransform.rotationDegrees,
                             offsetXRatio = baseTransform.translateX / buttonWidth,
@@ -193,7 +203,7 @@ object NxprcCompiler {
             val combinedInset = (insetShadows + afterInsets)
 
             if (combinedInset.isNotEmpty()) {
-                val darkInset = combinedInset.firstOrNull { ColorParser.isDark(it.color) }?.color ?: 0x73000000L
+                val darkInset = combinedInset.firstOrNull { ColorParser.isDark(it.color) }?.color ?: NxprcDefaults.DEFAULT_SHADOW_COLOR
                 val lightInset = combinedInset.firstOrNull { !ColorParser.isDark(it.color) }?.color ?: 0x30FFFFFFL
                 addLayer(15, CanvasLayer.InnerShadow(shadowColor = darkInset, highlightColor = lightInset, strokeWidth = 3.5f))
             }
@@ -231,7 +241,15 @@ object NxprcCompiler {
             val beforeOpacity = beforeStyle["opacity"]?.toFloatOrNull() ?: 1.0f
             val beforeFilter = FilterParser.parse(beforeStyle["filter"])
             val beforeBorder = GeometryParser.parseBorder(beforeStyle["border"] ?: beforeStyle["border-width"])
-            val bounds = GeometryParser.computeBoxBounds(beforeStyle, buttonWidth, buttonHeight)
+            val rawBeforeBounds = GeometryParser.computeBoxBounds(beforeStyle, buttonWidth, buttonHeight)
+            val bounds = resolveFlexChildBounds(
+                parentStyle = baseProps,
+                childStyle = beforeStyle,
+                rawBounds = rawBeforeBounds,
+                parentWidth = buttonWidth,
+                parentHeight = buttonHeight,
+                allowAbsoluteFlexAlignment = true
+            )
             val beforeWidth = bounds.width
             val beforeHeight = bounds.height
             val beforeLeft = bounds.left
@@ -279,6 +297,7 @@ object NxprcCompiler {
                         fills = beforeBgs.reversed(),
                         stroke = beforeBorder,
                         boxShadows = beforeShadows,
+                        filter = beforeFilter.toFilterDef(),
                         opacity = beforeOpacity,
                         rotationDegrees = beforeTransform.rotationDegrees,
                         offsetXRatio = (beforeLeft + beforeTransform.translateX) / buttonWidth,
@@ -300,10 +319,13 @@ object NxprcCompiler {
                             cornerRadius = beforeRadii.topLeft,
                             fill = bg,
                             stroke = if (index == beforeBgs.size - 1) beforeBorder else null,
+                            filter = beforeFilter.toFilterDef(),
                             opacity = beforeOpacity,
                             rotationDegrees = beforeTransform.rotationDegrees,
                             offsetXRatio = beforeTransform.translateX / buttonWidth,
                             offsetYRatio = beforeTransform.translateY / buttonHeight,
+                            widthRatio = beforeWidth / buttonWidth,
+                            heightRatio = beforeHeight / buttonHeight,
                             scaleX = beforeTransform.scaleX,
                             scaleY = beforeTransform.scaleY,
                             originXRatio = beforeTransform.originXRatio,
@@ -314,7 +336,7 @@ object NxprcCompiler {
 
                 val beforeInsets = beforeShadows.filter { it.isInset }
                 if (beforeInsets.isNotEmpty() && !isBoxPrimitive) {
-                    val darkB = beforeInsets.firstOrNull { ColorParser.isDark(it.color) }?.color ?: 0x73000000L
+                    val darkB = beforeInsets.firstOrNull { ColorParser.isDark(it.color) }?.color ?: NxprcDefaults.DEFAULT_SHADOW_COLOR
                     val lightB = beforeInsets.firstOrNull { !ColorParser.isDark(it.color) }?.color ?: 0x30FFFFFFL
                     addLayer(beforeStack + 2, CanvasLayer.InnerShadow(shadowColor = darkB, highlightColor = lightB, strokeWidth = 3.0f))
                 }
@@ -337,8 +359,16 @@ object NxprcCompiler {
                 if (!isVisible(childStyle)) continue
 
                 val cOpacity = childStyle["opacity"]?.toFloatOrNull() ?: 1.0f
+                val cFilter = FilterParser.parse(childStyle["filter"])
 
-                val bounds = GeometryParser.computeBoxBounds(childStyle, parentWidth, parentHeight)
+            val rawBounds = GeometryParser.computeBoxBounds(childStyle, parentWidth, parentHeight)
+            val bounds = resolveFlexChildBounds(
+                parentStyle = CssCascadeResolver.computeStyle(parentNode, stylesheet).base,
+                childStyle = childStyle,
+                rawBounds = rawBounds,
+                parentWidth = parentWidth,
+                parentHeight = parentHeight
+            )
                 val cWidth = bounds.width
                 val cHeight = bounds.height
                 val localLeft = bounds.left
@@ -400,6 +430,7 @@ object NxprcCompiler {
                             fills = cFills.reversed(),
                             stroke = cBorder,
                             boxShadows = cShadows,
+                            filter = cFilter.toFilterDef(),
                             opacity = cOpacity,
                             rotationDegrees = cTransform.rotationDegrees,
                             offsetXRatio = (globalX + cTransform.translateX) / buttonWidth,
@@ -448,7 +479,15 @@ object NxprcCompiler {
 
             val afterOpacity = afterStyle["opacity"]?.toFloatOrNull() ?: 1.0f
             val afterFilter = FilterParser.parse(afterStyle["filter"])
-            val bounds = GeometryParser.computeBoxBounds(afterStyle, buttonWidth, buttonHeight)
+            val rawAfterBounds = GeometryParser.computeBoxBounds(afterStyle, buttonWidth, buttonHeight)
+            val bounds = resolveFlexChildBounds(
+                parentStyle = baseProps,
+                childStyle = afterStyle,
+                rawBounds = rawAfterBounds,
+                parentWidth = buttonWidth,
+                parentHeight = buttonHeight,
+                allowAbsoluteFlexAlignment = true
+            )
             val afterWidth = bounds.width
             val afterHeight = bounds.height
             val afterLeft = bounds.left
@@ -478,7 +517,7 @@ object NxprcCompiler {
             val afterZ = GeometryParser.parseZIndex(afterStyle)
             val afterStack = 70 + afterZ * 10
 
-            if (isBoxPrimitive && afterBgs.isNotEmpty()) {
+            if (isBoxPrimitive && (afterBgs.isNotEmpty() || afterBorder != null || afterShadows.isNotEmpty())) {
                 addLayer(
                     afterStack,
                     CanvasLayer.BoxLayer(
@@ -496,6 +535,7 @@ object NxprcCompiler {
                         fills = afterBgs.reversed(),
                         stroke = afterBorder,
                         boxShadows = afterShadows,
+                        filter = afterFilter.toFilterDef(),
                         opacity = afterOpacity,
                         rotationDegrees = afterTransform.rotationDegrees,
                         offsetXRatio = (afterLeft + afterTransform.translateX) / buttonWidth,
@@ -517,10 +557,13 @@ object NxprcCompiler {
                             cornerRadius = radii.topLeft,
                             fill = bg,
                             stroke = if (index == afterBgs.size - 1) afterBorder else null,
+                            filter = afterFilter.toFilterDef(),
                             opacity = afterOpacity,
                             rotationDegrees = afterTransform.rotationDegrees,
                             offsetXRatio = afterTransform.translateX / buttonWidth,
                             offsetYRatio = afterTransform.translateY / buttonHeight,
+                            widthRatio = afterWidth / buttonWidth,
+                            heightRatio = afterHeight / buttonHeight,
                             scaleX = afterTransform.scaleX,
                             scaleY = afterTransform.scaleY,
                             originXRatio = afterTransform.originXRatio,
@@ -544,7 +587,8 @@ object NxprcCompiler {
                     (a.toLong() shl 24) or (rawTextColor and 0x00FFFFFFL)
                 } else rawTextColor
 
-                val fontSize = GeometryParser.parseFontSize(textStyle["font-size"] ?: baseProps["font-size"]) ?: 34f
+                val fontSize = GeometryParser.parseFontSize(textStyle["font-size"] ?: baseProps["font-size"])
+                    ?: (buttonHeight * 0.40f)
                 val textShadows = ShadowParser.parseTextShadows(textStyle["text-shadow"] ?: baseProps["text-shadow"])
 
                 val darkTextShadow = textShadows.firstOrNull { ColorParser.isDark(it.color) }
@@ -559,9 +603,9 @@ object NxprcCompiler {
                         text = text,
                         fontSizeSp = fontSize,
                         textColor = textColor,
-                        shadowColor = darkTextShadow?.color ?: 0x73000000L,
+                        shadowColor = darkTextShadow?.color ?: NxprcDefaults.DEFAULT_SHADOW_COLOR,
                         shadowOffsetY = darkTextShadow?.offsetY ?: 2.5f,
-                        highlightColor = lightTextHighlight?.color ?: 0xB3FFFFFFL,
+                        highlightColor = lightTextHighlight?.color ?: NxprcDefaults.DEFAULT_HIGHLIGHT_COLOR,
                         textShadows = textShadows
                     )
                 )
@@ -573,7 +617,7 @@ object NxprcCompiler {
         if (!centerGlyphAdded) {
             val centerText = primaryNode.findFirstText() ?: defaultControl
             val textColor = ColorParser.parse(baseProps["color"]) ?: 0xFFFFFFFFL
-            val fontSize = GeometryParser.parseFontSize(baseProps["font-size"]) ?: 36f
+            val fontSize = GeometryParser.parseFontSize(baseProps["font-size"]) ?: (buttonHeight * 0.35f)
             val textShadows = ShadowParser.parseTextShadows(baseProps["text-shadow"])
 
             val darkTextShadow = textShadows.firstOrNull { ColorParser.isDark(it.color) }
@@ -585,9 +629,9 @@ object NxprcCompiler {
                     text = centerText,
                     fontSizeSp = fontSize,
                     textColor = textColor,
-                    shadowColor = darkTextShadow?.color ?: 0x73000000L,
+                    shadowColor = darkTextShadow?.color ?: NxprcDefaults.DEFAULT_SHADOW_COLOR,
                     shadowOffsetY = darkTextShadow?.offsetY ?: 2.5f,
-                    highlightColor = lightTextHighlight?.color ?: 0xB3FFFFFFL,
+                    highlightColor = lightTextHighlight?.color ?: NxprcDefaults.DEFAULT_HIGHLIGHT_COLOR,
                     textShadows = textShadows
                 )
             )
@@ -651,8 +695,8 @@ object NxprcCompiler {
                 name = resolvedName,
                 category = autoCategory.uppercase(),
                 defaultControl = autoControl.uppercase(),
-                widthDp = buttonWidth.toInt().coerceIn(40, 200),
-                heightDp = buttonHeight.toInt().coerceIn(40, 200),
+                widthDp = buttonWidth.toInt().coerceIn(NxprcDefaults.DEFAULT_MIN_SIZE_DP, NxprcDefaults.DEFAULT_MAX_SIZE_DP),
+                heightDp = buttonHeight.toInt().coerceIn(NxprcDefaults.DEFAULT_MIN_SIZE_DP, NxprcDefaults.DEFAULT_MAX_SIZE_DP),
                 description = "Compiled from HTML/CSS/SVG DOM Engine"
             ),
             canvas = NxprcCanvas(
@@ -677,9 +721,65 @@ object NxprcCompiler {
         return d != "none" && v != "hidden"
     }
 
+    /**
+     * Resolve the small but important subset of flex layout used by generated
+     * button markup. Browser previews center children in flex containers; the
+     * native renderer must use the same origin for visual parity.
+     */
+    private fun resolveFlexChildBounds(
+        parentStyle: Map<String, String>,
+        childStyle: Map<String, String>,
+        rawBounds: com.sanket.tools.nexpad.nxprc.engine.parsers.ComputedBoxBounds,
+        parentWidth: Float,
+        parentHeight: Float,
+        allowAbsoluteFlexAlignment: Boolean = false
+    ): com.sanket.tools.nexpad.nxprc.engine.parsers.ComputedBoxBounds {
+        if (parentStyle["display"]?.trim()?.lowercase() != "flex") return rawBounds
+
+        // Absolutely positioned children follow inset/left/top and must not
+        // be moved by flex alignment.
+        if ((!allowAbsoluteFlexAlignment && childStyle["position"]?.trim()?.lowercase() == "absolute") ||
+            childStyle.keys.any { it == "inset" || it == "left" || it == "right" || it == "top" || it == "bottom" }
+        ) return rawBounds
+
+        val direction = parentStyle["flex-direction"]?.trim()?.lowercase() ?: "row"
+        val justify = parentStyle["justify-content"]?.trim()?.lowercase() ?: "flex-start"
+        val align = parentStyle["align-items"]?.trim()?.lowercase() ?: "stretch"
+
+        fun centered(start: Float, available: Float, size: Float): Float =
+            when (start) {
+                0f -> (available - size).coerceAtLeast(0f) / 2f
+                else -> start
+            }
+
+        val isColumn = direction == "column" || direction == "column-reverse"
+        var left = rawBounds.left
+        var top = rawBounds.top
+
+        if (!isColumn && (justify == "center" || justify == "space-around" || justify == "space-evenly")) {
+            left = centered(rawBounds.left, parentWidth, rawBounds.width)
+        } else if (isColumn && (justify == "center" || justify == "space-around" || justify == "space-evenly")) {
+            top = centered(rawBounds.top, parentHeight, rawBounds.height)
+        }
+
+        if (!isColumn && (align == "center" || align == "space-around" || align == "space-evenly")) {
+            top = centered(rawBounds.top, parentHeight, rawBounds.height)
+        } else if (isColumn && (align == "center" || align == "space-around" || align == "space-evenly")) {
+            left = centered(rawBounds.left, parentWidth, rawBounds.width)
+        }
+
+        return rawBounds.copy(left = left, top = top)
+    }
+
     private fun findPrimaryButtonNode(root: DomNode, stylesheet: CssStylesheet): DomNode {
         // 1. Explicit <button> tag
         val buttons = root.findByTag("button")
+        buttons.firstOrNull {
+            it.attributes["data-control"] != null && it.attributes["data-category"] != null
+        }?.let { return it }
+        buttons.firstOrNull {
+            it.classNames.any { cls -> cls.equals("nexpad-btn", true) || cls.endsWith("-btn", true) }
+        }?.let { return it }
         if (buttons.isNotEmpty()) return buttons[0]
 
         // 2. Class names matching button keywords

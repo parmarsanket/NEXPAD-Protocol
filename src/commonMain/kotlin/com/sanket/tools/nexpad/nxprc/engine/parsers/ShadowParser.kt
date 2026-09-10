@@ -13,6 +13,11 @@ import java.util.regex.Pattern
  */
 object ShadowParser {
 
+    private val PAREN_COLOR_REGEX = Pattern.compile("(?:rgba?|hsla?)\\([^)]+\\)")
+    private val HEX_COLOR_REGEX = Pattern.compile("#[0-9a-fA-F]{3,8}\\b")
+    private val LENGTH_REGEX = Pattern.compile("(-?\\d+(?:\\.\\d+)?)(?:px)?")
+    private val TOKEN_DELIMITER_REGEX = Pattern.compile("[^a-z0-9_-]+")
+
     fun parseBoxShadows(shadowStr: String?): List<BoxShadowDef> {
         if (shadowStr.isNullOrBlank() || shadowStr.trim().equals("none", ignoreCase = true)) {
             return emptyList()
@@ -30,7 +35,7 @@ object ShadowParser {
             val cleanLengths = if (colorStr != null) withoutInset.replace(colorStr, "").trim() else withoutInset
 
             val lengths = mutableListOf<Float>()
-            val lenMatcher = Pattern.compile("(-?\\d+(?:\\.\\d+)?)(?:px)?").matcher(cleanLengths)
+            val lenMatcher = LENGTH_REGEX.matcher(cleanLengths)
             while (lenMatcher.find()) {
                 lenMatcher.group(1).toFloatOrNull()?.let { lengths.add(it) }
             }
@@ -69,7 +74,7 @@ object ShadowParser {
             val cleanLengths = if (colorStr != null) item.replace(colorStr, "").trim() else item
 
             val lengths = mutableListOf<Float>()
-            val lenMatcher = Pattern.compile("(-?\\d+(?:\\.\\d+)?)(?:px)?").matcher(cleanLengths)
+            val lenMatcher = LENGTH_REGEX.matcher(cleanLengths)
             while (lenMatcher.find()) {
                 lenMatcher.group(1).toFloatOrNull()?.let { lengths.add(it) }
             }
@@ -85,15 +90,18 @@ object ShadowParser {
     }
 
     private fun findColorSubstr(text: String): String? {
-        val paren = Pattern.compile("(?:rgba?|hsla?)\\([^)]+\\)").matcher(text)
+        val paren = PAREN_COLOR_REGEX.matcher(text)
         if (paren.find()) return paren.group(0)
-        val hex = Pattern.compile("#[0-9a-fA-F]{3,8}\\b").matcher(text)
+        val hex = HEX_COLOR_REGEX.matcher(text)
         if (hex.find()) return hex.group(0)
-        // Check named CSS colors
+        // Check named CSS colors with word boundary to prevent accidental substring matches
         val lower = text.lowercase()
-        for (name in ColorParser.NAMED_COLORS.keys) {
-            val idx = lower.indexOf(name)
-            if (idx >= 0) return text.substring(idx, idx + name.length)
+        val tokens = lower.split(TOKEN_DELIMITER_REGEX)
+        for (tok in tokens) {
+            if (tok.isNotBlank() && ColorParser.NAMED_COLORS.containsKey(tok)) {
+                val m = Pattern.compile("\\b" + Pattern.quote(tok) + "\\b", Pattern.CASE_INSENSITIVE).matcher(text)
+                if (m.find()) return m.group(0)
+            }
         }
         return null
     }

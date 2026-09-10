@@ -62,7 +62,12 @@ object CssCascadeResolver {
             return false
         }
         // Class check
-        if (sel.className != null && !node.classNames.any { it.equals(sel.className, ignoreCase = true) }) {
+        if (sel.classNames.isNotEmpty() && sel.classNames.any { required ->
+                node.classNames.none { it.equals(required, ignoreCase = true) }
+            }) {
+            return false
+        }
+        if (sel.classNames.isEmpty() && sel.className != null && !node.classNames.any { it.equals(sel.className, ignoreCase = true) }) {
             return false
         }
         // ID check
@@ -72,6 +77,9 @@ object CssCascadeResolver {
         // Ancestor check
         if (sel.ancestorSelector != null) {
             var curr = node.parent
+            if (sel.ancestorCombinator == ">") {
+                return curr != null && matchesNode(curr, sel.ancestorSelector)
+            }
             var matched = false
             while (curr != null) {
                 if (matchesNode(curr, sel.ancestorSelector)) {

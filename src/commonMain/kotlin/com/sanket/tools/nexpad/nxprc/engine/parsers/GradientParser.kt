@@ -303,13 +303,21 @@ object GradientParser {
         val list = mutableListOf<String>()
         var start = 0
         var depth = 0
+        var inSingleQuote = false
+        var inDoubleQuote = false
         for (i in text.indices) {
             val c = text[i]
-            if (c == '(') depth++
-            else if (c == ')') depth--
-            else if (c == ',' && depth == 0) {
-                list.add(text.substring(start, i).trim())
-                start = i + 1
+            if (c == '\'' && !inDoubleQuote) {
+                inSingleQuote = !inSingleQuote
+            } else if (c == '"' && !inSingleQuote) {
+                inDoubleQuote = !inDoubleQuote
+            } else if (!inSingleQuote && !inDoubleQuote) {
+                if (c == '(') depth++
+                else if (c == ')') depth--
+                else if (c == ',' && depth == 0) {
+                    list.add(text.substring(start, i).trim())
+                    start = i + 1
+                }
             }
         }
         if (start < text.length) {
