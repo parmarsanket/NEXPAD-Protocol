@@ -334,7 +334,8 @@ sealed class FillBrush {
 @Serializable
 data class StrokeStyle(
     val color: Long,
-    val width: Float = 2f
+    val width: Float = 2f,
+    val isDashed: Boolean = false
 )
 
 @Serializable

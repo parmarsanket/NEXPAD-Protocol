@@ -343,6 +343,17 @@ object NxprcCompiler {
             }
         }
 
+        val allTextNodes = mutableListOf<DomNode>()
+        fun collectTextLeaves(node: DomNode) {
+            val elementChildren = node.children.filter { it.tag != "#text" }
+            if (elementChildren.isEmpty() && node.findFirstText() != null) {
+                allTextNodes.add(node)
+            } else {
+                elementChildren.forEach { collectTextLeaves(it) }
+            }
+        }
+        collectTextLeaves(primaryNode)
+
         // 5. Recursive DOM Tree Compilation (supports arbitrary nested spans, divs, grass blades, lenses)
         fun compileDomChildren(
             parentNode: DomNode,
@@ -352,8 +363,18 @@ object NxprcCompiler {
             parentGlobalY: Float,
             isParentClipping: Boolean = false
         ) {
+            val parentStyle = CssCascadeResolver.computeStyle(parentNode, stylesheet).base
+            val childBoundsMap = layoutFlexContainerChildren(
+                parentNode = parentNode,
+                parentStyle = parentStyle,
+                stylesheet = stylesheet,
+                parentWidth = parentWidth,
+                parentHeight = parentHeight
+            )
+
             for (child in parentNode.children) {
-                if (child == textNode) continue
+                if (child.tag == "#text") continue
+                if (allTextNodes.size <= 1 && child == textNode) continue
 
                 val childStyle = CssCascadeResolver.computeStyle(child, stylesheet).base
                 if (!isVisible(childStyle)) continue
@@ -361,14 +382,7 @@ object NxprcCompiler {
                 val cOpacity = childStyle["opacity"]?.toFloatOrNull() ?: 1.0f
                 val cFilter = FilterParser.parse(childStyle["filter"])
 
-            val rawBounds = GeometryParser.computeBoxBounds(childStyle, parentWidth, parentHeight)
-            val bounds = resolveFlexChildBounds(
-                parentStyle = CssCascadeResolver.computeStyle(parentNode, stylesheet).base,
-                childStyle = childStyle,
-                rawBounds = rawBounds,
-                parentWidth = parentWidth,
-                parentHeight = parentHeight
-            )
+                val bounds = childBoundsMap[child] ?: GeometryParser.computeBoxBounds(childStyle, parentWidth, parentHeight)
                 val cWidth = bounds.width
                 val cHeight = bounds.height
                 val localLeft = bounds.left
@@ -441,6 +455,33 @@ object NxprcCompiler {
                             skewY = cTransform.skewY,
                             originXRatio = cTransform.originXRatio,
                             originYRatio = cTransform.originYRatio
+                        )
+                    )
+                }
+
+                // If this element has direct text content and multiple text nodes exist in the component, emit TextLayer
+                val childText = child.findFirstText()
+                if (childText != null && allTextNodes.size > 1 && child.children.none { it.tag != "#text" && it.findFirstText() != null }) {
+                    val tColor = ColorParser.parse(childStyle["color"] ?: baseProps["color"]) ?: 0xFFFFFFFFL
+                    val tFontSize = GeometryParser.parseFontSize(childStyle["font-size"] ?: baseProps["font-size"]) ?: 14f
+                    val tWeight = childStyle["font-weight"]?.toIntOrNull() ?: if (childStyle["font-weight"]?.contains("bold", true) == true) 700 else 400
+                    val tShadows = ShadowParser.parseTextShadows(childStyle["text-shadow"])
+
+                    val childCenterX = globalX + cWidth / 2f
+                    val childCenterY = globalY + cHeight / 2f
+                    val offXRatio = (childCenterX - buttonWidth / 2f) / buttonWidth
+                    val offYRatio = (childCenterY - buttonHeight / 2f) / buttonHeight
+
+                    addLayer(
+                        childStack + 150,
+                        CanvasLayer.TextLayer(
+                            text = childText,
+                            fontSizeSp = tFontSize,
+                            fontWeight = tWeight,
+                            textColor = tColor,
+                            offsetXRatio = offXRatio,
+                            offsetYRatio = offYRatio,
+                            textShadows = tShadows
                         )
                     )
                 }
@@ -769,6 +810,125 @@ object NxprcCompiler {
         }
 
         return rawBounds.copy(left = left, top = top)
+    }
+
+    private fun layoutFlexContainerChildren(
+        parentNode: DomNode,
+        parentStyle: Map<String, String>,
+        stylesheet: CssStylesheet,
+        parentWidth: Float,
+        parentHeight: Float
+    ): Map<DomNode, com.sanket.tools.nexpad.nxprc.engine.parsers.ComputedBoxBounds> {
+        val result = mutableMapOf<DomNode, com.sanket.tools.nexpad.nxprc.engine.parsers.ComputedBoxBounds>()
+        val children = parentNode.children.filter { it.tag != "#text" }
+        if (parentStyle["display"]?.trim()?.lowercase() != "flex") {
+            for (child in children) {
+                val childStyle = CssCascadeResolver.computeStyle(child, stylesheet).base
+                result[child] = GeometryParser.computeBoxBounds(childStyle, parentWidth, parentHeight)
+            }
+            return result
+        }
+
+        val direction = parentStyle["flex-direction"]?.trim()?.lowercase() ?: "row"
+        val isColumn = direction == "column" || direction == "column-reverse"
+        val isReverse = direction == "row-reverse" || direction == "column-reverse"
+        val justify = parentStyle["justify-content"]?.trim()?.lowercase() ?: "flex-start"
+        val align = parentStyle["align-items"]?.trim()?.lowercase() ?: "stretch"
+
+        val pad = GeometryParser.parseInset(parentStyle["padding"], parentWidth, parentHeight)
+        val pTop = GeometryParser.parsePixelOrPercent(parentStyle["padding-top"], parentHeight, pad?.top ?: 0f)
+        val pBottom = GeometryParser.parsePixelOrPercent(parentStyle["padding-bottom"], parentHeight, pad?.bottom ?: 0f)
+        val pLeft = GeometryParser.parsePixelOrPercent(parentStyle["padding-left"], parentWidth, pad?.left ?: 0f)
+        val pRight = GeometryParser.parsePixelOrPercent(parentStyle["padding-right"], parentWidth, pad?.right ?: 0f)
+
+        val gapStr = parentStyle["gap"] ?: (if (isColumn) parentStyle["row-gap"] else parentStyle["column-gap"])
+        val gap = GeometryParser.parsePixelOrPercent(gapStr, if (isColumn) parentHeight else parentWidth, 0f)
+
+        val inFlowList = mutableListOf<Pair<DomNode, com.sanket.tools.nexpad.nxprc.engine.parsers.ComputedBoxBounds>>()
+
+        for (child in children) {
+            val childStyle = CssCascadeResolver.computeStyle(child, stylesheet).base
+            val isAbsolute = childStyle["position"]?.trim()?.lowercase() == "absolute" ||
+                    childStyle.keys.any { it == "inset" || it == "left" || it == "right" || it == "top" || it == "bottom" }
+            val rawBounds = GeometryParser.computeBoxBounds(childStyle, parentWidth, parentHeight)
+
+            if (isAbsolute) {
+                result[child] = rawBounds
+            } else {
+                var w = rawBounds.width
+                var h = rawBounds.height
+                if (childStyle["width"] == null) {
+                    val text = child.findFirstText()
+                    if (text != null) {
+                        val fontSize = GeometryParser.parseFontSize(childStyle["font-size"] ?: parentStyle["font-size"]) ?: 16f
+                        w = (text.length * fontSize * 0.65f).coerceIn(fontSize, (parentWidth - pLeft - pRight).coerceAtLeast(fontSize))
+                    }
+                }
+                if (childStyle["height"] == null) {
+                    val fontSize = GeometryParser.parseFontSize(childStyle["font-size"] ?: parentStyle["font-size"])
+                    if (fontSize != null) {
+                        h = fontSize * 1.2f
+                    }
+                }
+                inFlowList.add(child to com.sanket.tools.nexpad.nxprc.engine.parsers.ComputedBoxBounds(rawBounds.left, rawBounds.top, w, h))
+            }
+        }
+
+        if (inFlowList.isEmpty()) return result
+
+        val orderedList = if (isReverse) inFlowList.reversed() else inFlowList
+        val totalMain = orderedList.sumOf { (if (isColumn) it.second.height else it.second.width).toDouble() }.toFloat() +
+                ((orderedList.size - 1).coerceAtLeast(0) * gap)
+
+        val availMain = if (isColumn) {
+            (parentHeight - pTop - pBottom - totalMain).coerceAtLeast(0f)
+        } else {
+            (parentWidth - pLeft - pRight - totalMain).coerceAtLeast(0f)
+        }
+
+        var currentMain = when (justify) {
+            "center" -> (if (isColumn) pTop else pLeft) + availMain / 2f
+            "flex-end" -> (if (isColumn) parentHeight - pBottom - totalMain else parentWidth - pRight - totalMain)
+            "space-around" -> (if (isColumn) pTop else pLeft) + (availMain / (orderedList.size * 2f))
+            "space-evenly" -> (if (isColumn) pTop else pLeft) + (availMain / (orderedList.size + 1f))
+            else -> if (isColumn) pTop else pLeft
+        }
+
+        val extraSpacing = when (justify) {
+            "space-between" -> if (orderedList.size > 1) availMain / (orderedList.size - 1) else 0f
+            "space-around" -> availMain / orderedList.size
+            "space-evenly" -> availMain / (orderedList.size + 1f)
+            else -> 0f
+        }
+
+        for ((child, bounds) in orderedList) {
+            val childW = bounds.width
+            val childH = bounds.height
+
+            val (cLeft, cTop) = if (isColumn) {
+                val top = currentMain
+                val left = when (align) {
+                    "center" -> pLeft + (parentWidth - pLeft - pRight - childW).coerceAtLeast(0f) / 2f
+                    "flex-end" -> parentWidth - pRight - childW
+                    else -> pLeft
+                }
+                currentMain += childH + (if (justify.startsWith("space-")) extraSpacing else gap)
+                left to top
+            } else {
+                val left = currentMain
+                val top = when (align) {
+                    "center" -> pTop + (parentHeight - pTop - pBottom - childH).coerceAtLeast(0f) / 2f
+                    "flex-end" -> parentHeight - pBottom - childH
+                    else -> pTop
+                }
+                currentMain += childW + (if (justify.startsWith("space-")) extraSpacing else gap)
+                left to top
+            }
+
+            result[child] = com.sanket.tools.nexpad.nxprc.engine.parsers.ComputedBoxBounds(cLeft, cTop, childW, childH)
+        }
+
+        return result
     }
 
     private fun findPrimaryButtonNode(root: DomNode, stylesheet: CssStylesheet): DomNode {

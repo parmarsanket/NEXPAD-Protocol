@@ -109,7 +109,8 @@ object GeometryParser {
             width = wMatcher.group(1).toFloatOrNull() ?: 2.0f
         }
         if (width == 0f) return null
-        return StrokeStyle(color = color, width = width)
+        val isDashed = borderStr.contains("dashed", ignoreCase = true)
+        return StrokeStyle(color = color, width = width, isDashed = isDashed)
     }
 
     fun parseBorderRadius(radiusStr: String?, defaultSizeDp: Float = 76f): CornerRadii {

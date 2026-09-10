@@ -77,9 +77,8 @@ object HtmlDomParser {
                         id = id,
                         classNames = classNames,
                         inlineStyles = inlineStyles,
-                        attributes = attrs,
-                        parent = current
-                    )
+                        attributes = attrs
+                    ).apply { parent = current }
                     current.children.add(node)
 
                     if (!selfClose) {

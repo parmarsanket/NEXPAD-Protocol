@@ -1,6 +1,6 @@
 package com.sanket.tools.nexpad.nxprc.engine.dom
 
-data class DomNode(
+class DomNode(
     val tag: String,
     val id: String? = null,
     val classNames: List<String> = emptyList(),
@@ -8,8 +8,18 @@ data class DomNode(
     val attributes: Map<String, String> = emptyMap(),
     var textContent: String = "",
     val children: MutableList<DomNode> = mutableListOf(),
-    var parent: DomNode? = null
+    val nodeIndex: Int = nextNodeIndex()
 ) {
+    var parent: DomNode? = null
+
+    override fun equals(other: Any?): Boolean = this === other
+    override fun hashCode(): Int = nodeIndex
+
+    companion object {
+        private var counter = 0
+        private fun nextNodeIndex(): Int = ++counter
+    }
+
     fun findByTag(tagName: String): List<DomNode> {
         val results = mutableListOf<DomNode>()
         fun recurse(node: DomNode) {
