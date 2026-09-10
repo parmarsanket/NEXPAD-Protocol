@@ -72,6 +72,30 @@ data class TextShadowDef(
 )
 
 @Serializable
+data class TransformDef(
+    val rotationDegrees: Float = 0f,
+    val offsetXRatio: Float = 0f,
+    val offsetYRatio: Float = 0f,
+    val scaleX: Float = 1.0f,
+    val scaleY: Float = 1.0f,
+    val skewX: Float = 0f,
+    val skewY: Float = 0f,
+    val originXRatio: Float = 0.5f,
+    val originYRatio: Float = 0.5f,
+    val isRotating: Boolean = false
+) {
+    val hasTransform: Boolean
+        get() = rotationDegrees != 0f || offsetXRatio != 0f || offsetYRatio != 0f ||
+                scaleX != 1.0f || scaleY != 1.0f || skewX != 0f || skewY != 0f || isRotating
+}
+
+@Serializable
+data class EffectsDef(
+    val opacity: Float = 1.0f,
+    val filter: FilterDef = FilterDef()
+)
+
+@Serializable
 sealed class CanvasLayer {
 
     /**
@@ -107,8 +131,44 @@ sealed class CanvasLayer {
         val skewY: Float = 0f,
         val originXRatio: Float = 0.5f,
         val originYRatio: Float = 0.5f,
-        val isRotating: Boolean = false
-    ) : CanvasLayer()
+        val isRotating: Boolean = false,
+        val transform: TransformDef = TransformDef(
+            rotationDegrees = rotationDegrees,
+            offsetXRatio = offsetXRatio,
+            offsetYRatio = offsetYRatio,
+            scaleX = scaleX,
+            scaleY = scaleY,
+            skewX = skewX,
+            skewY = skewY,
+            originXRatio = originXRatio,
+            originYRatio = originYRatio,
+            isRotating = isRotating
+        ),
+        val effects: EffectsDef = EffectsDef(
+            opacity = opacity,
+            filter = filter
+        )
+    ) : CanvasLayer() {
+        val effectiveTransform: TransformDef
+            get() = if (transform.hasTransform || transform != TransformDef()) transform else TransformDef(
+                rotationDegrees = rotationDegrees,
+                offsetXRatio = offsetXRatio,
+                offsetYRatio = offsetYRatio,
+                scaleX = scaleX,
+                scaleY = scaleY,
+                skewX = skewX,
+                skewY = skewY,
+                originXRatio = originXRatio,
+                originYRatio = originYRatio,
+                isRotating = isRotating
+            )
+
+        val effectiveEffects: EffectsDef
+            get() = if (effects != EffectsDef()) effects else EffectsDef(
+                opacity = opacity,
+                filter = filter
+            )
+    }
 
     @Serializable
     @SerialName("VectorPath")
@@ -140,8 +200,38 @@ sealed class CanvasLayer {
         val scaleX: Float = 1.0f,
         val scaleY: Float = 1.0f,
         val originXRatio: Float = 0.5f,
-        val originYRatio: Float = 0.5f
-    ) : CanvasLayer()
+        val originYRatio: Float = 0.5f,
+        val transform: TransformDef = TransformDef(
+            rotationDegrees = rotationDegrees,
+            offsetXRatio = offsetXRatio,
+            offsetYRatio = offsetYRatio,
+            scaleX = scaleX,
+            scaleY = scaleY,
+            originXRatio = originXRatio,
+            originYRatio = originYRatio
+        ),
+        val effects: EffectsDef = EffectsDef(
+            opacity = opacity,
+            filter = filter
+        )
+    ) : CanvasLayer() {
+        val effectiveTransform: TransformDef
+            get() = if (transform.hasTransform || transform != TransformDef()) transform else TransformDef(
+                rotationDegrees = rotationDegrees,
+                offsetXRatio = offsetXRatio,
+                offsetYRatio = offsetYRatio,
+                scaleX = scaleX,
+                scaleY = scaleY,
+                originXRatio = originXRatio,
+                originYRatio = originYRatio
+            )
+
+        val effectiveEffects: EffectsDef
+            get() = if (effects != EffectsDef()) effects else EffectsDef(
+                opacity = opacity,
+                filter = filter
+            )
+    }
 
     @Serializable
     @SerialName("GlowRing")
