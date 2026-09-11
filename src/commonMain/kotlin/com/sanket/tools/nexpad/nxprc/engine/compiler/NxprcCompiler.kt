@@ -129,7 +129,7 @@ object NxprcCompiler {
 
         val hasExplicitBezel = primaryNode.attributes["data-bezel"] == "true" ||
                 primaryNode.classNames.any { it.contains("bezel") || it.contains("socket") } ||
-                (isOval && outsetShadows.any { it.spreadRadius > 0f })
+                (isOval && outsetShadows.any { it.spreadRadius >= 3f })
 
         val rawFills = GradientParser.parseAll(
             baseProps["background"] ?: baseProps["background-color"] ?: baseProps["fill"],
@@ -469,11 +469,119 @@ object NxprcCompiler {
                 parentHeight = parentHeight
             )
 
+            fun compilePseudoElement(
+                pseudoStyle: Map<String, String>?,
+                isBefore: Boolean,
+                parentGlobalX: Float,
+                parentGlobalY: Float,
+                parentW: Float,
+                parentH: Float,
+                childStack: Int,
+                isParentClipping: Boolean
+            ) {
+                if (pseudoStyle == null || !isVisible(pseudoStyle)) return
+
+                val pOpacity = pseudoStyle["opacity"]?.toFloatOrNull() ?: 1.0f
+                val pFilter = FilterParser.parse(pseudoStyle["filter"])
+
+                val pBounds = GeometryParser.computeBoxBounds(pseudoStyle, parentW, parentH)
+                val pWidth = pBounds.width
+                val pHeight = pBounds.height
+                val pLocalLeft = pBounds.left
+                val pLocalTop = pBounds.top
+
+                val pGlobalX = parentGlobalX + pLocalLeft
+                val pGlobalY = parentGlobalY + pLocalTop
+
+                val pRadii = GeometryParser.parseBorderRadius(pseudoStyle["border-radius"], defaultSizeDp = pWidth)
+                val pBorder = GeometryParser.parseBorder(pseudoStyle["border"] ?: pseudoStyle["border-top"] ?: pseudoStyle["border-width"])
+                val pClip = GeometryParser.parseClipPath(pseudoStyle["clip-path"] ?: pseudoStyle["-webkit-clip-path"], pWidth, pHeight)
+                val isPOval = pseudoStyle["border-radius"]?.contains("50%") == true ||
+                    (pRadii.topLeft >= (pWidth * 0.35f) && pRadii.topRight >= (pWidth * 0.35f) &&
+                     pRadii.bottomRight >= (pWidth * 0.35f) && pRadii.bottomLeft >= (pWidth * 0.35f))
+                val pShape = when {
+                    pClip != null -> pClip.shapeType
+                    isPOval -> "OVAL"
+                    else -> "ROUNDED_RECT"
+                }
+                val pPolySides = pClip?.polygonSides ?: 0
+                val pPolyPath = pClip?.pathData ?: ""
+
+                val pZ = GeometryParser.parseZIndex(pseudoStyle)
+                val pStack = childStack + (if (isBefore) 1 else 2) + pZ * 10
+
+                val pBg = pseudoStyle["background"] ?: pseudoStyle["background-color"]
+                val pFills = if (pBg != null) {
+                    GradientParser.parseAll(
+                        pBg,
+                        pseudoStyle["background-position"],
+                        pseudoStyle["background-size"]
+                    )
+                } else emptyList()
+
+                val pShadows = ShadowParser.parseBoxShadows(pseudoStyle["box-shadow"])
+                val pTransform = AnimationParser.parseTransforms(
+                    pseudoStyle["transform"],
+                    pseudoStyle["transform-origin"],
+                    pWidth,
+                    pHeight
+                )
+                val clipPseudo = pseudoStyle["overflow"] == "hidden" || pClip != null || isParentClipping
+
+                if (pFills.isNotEmpty() || pBorder != null || pShadows.isNotEmpty()) {
+                    val pFilterDef = pFilter.toFilterDef()
+                    val pOutsets = computeShadowOutsets(pShadows)
+                    val pStrategy = computeCompositingStrategy(
+                        opacity = pOpacity,
+                        hasMultipleFillsOrChildren = pFills.size > 1,
+                        hasFilter = pFilterDef.blurRadius > 0f || pFilterDef.brightness != 1f || pFilterDef.saturation != 1f
+                    )
+                    addLayer(
+                        pStack,
+                        CanvasLayer.BoxLayer(
+                            shapeType = pShape,
+                            polygonSides = pPolySides,
+                            pathData = pPolyPath,
+                            cornerRadiusTopLeft = pRadii.topLeft,
+                            cornerRadiusTopRight = pRadii.topRight,
+                            cornerRadiusBottomRight = pRadii.bottomRight,
+                            cornerRadiusBottomLeft = pRadii.bottomLeft,
+                            widthRatio = pWidth / buttonWidth,
+                            heightRatio = pHeight / buttonHeight,
+                            clipToBounds = clipPseudo,
+                            fill = pFills.firstOrNull() ?: FillBrush.Solid(0x00000000L),
+                            fills = pFills.reversed(),
+                            stroke = pBorder,
+                            boxShadows = pShadows,
+                            filter = pFilterDef,
+                            opacity = pOpacity,
+                            rotationDegrees = pTransform.rotationDegrees,
+                            offsetXRatio = (pGlobalX + pTransform.translateX) / buttonWidth,
+                            offsetYRatio = (pGlobalY + pTransform.translateY) / buttonHeight,
+                            scaleX = pTransform.scaleX,
+                            scaleY = pTransform.scaleY,
+                            skewX = pTransform.skewX,
+                            skewY = pTransform.skewY,
+                            originXRatio = pTransform.originXRatio,
+                            originYRatio = pTransform.originYRatio,
+                            effects = EffectsDef(
+                                opacity = pOpacity,
+                                filter = pFilterDef,
+                                compositingStrategy = pStrategy,
+                                layerOutsets = pOutsets,
+                                drawCacheHint = true
+                            )
+                        )
+                    )
+                }
+            }
+
             for (child in parentNode.children) {
                 if (child.tag == "#text") continue
                 if (allTextNodes.size <= 1 && child == textNode) continue
 
-                val childStyle = CssCascadeResolver.computeStyle(child, stylesheet).base
+                val childComputed = CssCascadeResolver.computeStyle(child, stylesheet)
+                val childStyle = childComputed.base
                 if (!isVisible(childStyle)) continue
 
                 val cOpacity = childStyle["opacity"]?.toFloatOrNull() ?: 1.0f
@@ -570,6 +678,18 @@ object NxprcCompiler {
                     )
                 }
 
+                // Compile child ::before pseudo-element
+                compilePseudoElement(
+                    pseudoStyle = childComputed.before,
+                    isBefore = true,
+                    parentGlobalX = globalX,
+                    parentGlobalY = globalY,
+                    parentW = cWidth,
+                    parentH = cHeight,
+                    childStack = childStack,
+                    isParentClipping = clipChild
+                )
+
                 // If this element has direct text content and multiple text nodes exist in the component, emit TextLayer
                 val childText = child.findFirstText()
                 if (childText != null && allTextNodes.size > 1 && child.children.none { it.tag != "#text" && it.findFirstText() != null }) {
@@ -607,6 +727,18 @@ object NxprcCompiler {
                         isParentClipping = clipChild
                     )
                 }
+
+                // Compile child ::after pseudo-element
+                compilePseudoElement(
+                    pseudoStyle = childComputed.after,
+                    isBefore = false,
+                    parentGlobalX = globalX,
+                    parentGlobalY = globalY,
+                    parentW = cWidth,
+                    parentH = cHeight,
+                    childStack = childStack,
+                    isParentClipping = clipChild
+                )
             }
         }
 
@@ -1012,10 +1144,15 @@ object NxprcCompiler {
                     val text = child.findFirstText()
                     if (text != null) {
                         val fontSize = GeometryParser.parseFontSize(childStyle["font-size"] ?: parentStyle["font-size"]) ?: 16f
-                        w = (text.length * fontSize * 0.65f).coerceIn(fontSize, (parentWidth - pLeft - pRight).coerceAtLeast(fontSize))
+                        val fontWeight = childStyle["font-weight"]?.let { GeometryParser.parseFontWeight(it) } ?: 400
+                        val metrics = com.sanket.tools.nexpad.nxprc.engine.text.TextMetrics.measure(text, fontSize, fontWeight)
+                        w = metrics.width.coerceIn(fontSize, (parentWidth - pLeft - pRight).coerceAtLeast(fontSize))
+                        if (childStyle["height"] == null) {
+                            h = metrics.height
+                        }
                     }
                 }
-                if (childStyle["height"] == null) {
+                if (childStyle["height"] == null && childStyle["width"] != null) {
                     val fontSize = GeometryParser.parseFontSize(childStyle["font-size"] ?: parentStyle["font-size"])
                     if (fontSize != null) {
                         h = fontSize * 1.2f

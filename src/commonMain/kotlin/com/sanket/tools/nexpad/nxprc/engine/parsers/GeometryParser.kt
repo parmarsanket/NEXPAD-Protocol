@@ -64,14 +64,19 @@ object GeometryParser {
 
     fun computeBoxBounds(style: Map<String, String>, parentW: Float, parentH: Float): ComputedBoxBounds {
         val inset = parseInset(style["inset"], parentW, parentH)
-        if (inset != null) {
-            val w = (parentW - inset.left - inset.right).coerceAtLeast(0f)
-            val h = (parentH - inset.top - inset.bottom).coerceAtLeast(0f)
-            return ComputedBoxBounds(left = inset.left, top = inset.top, width = w, height = h)
-        }
 
-        val width = when {
-            style["width"] != null -> parsePixelOrPercent(style["width"], parentW, parentW)
+        val explicitWidth = style["width"]?.let { parsePixelOrPercent(it, parentW, parentW) }
+        val explicitHeight = style["height"]?.let { parsePixelOrPercent(it, parentH, parentH) }
+
+        val isBorderBox = style["box-sizing"]?.trim()?.lowercase() != "content-box"
+        val padTop = parsePixelOrPercent(style["padding-top"] ?: style["padding"], parentH, 0f)
+        val padBottom = parsePixelOrPercent(style["padding-bottom"] ?: style["padding"], parentH, 0f)
+        val padLeft = parsePixelOrPercent(style["padding-left"] ?: style["padding"], parentW, 0f)
+        val padRight = parsePixelOrPercent(style["padding-right"] ?: style["padding"], parentW, 0f)
+
+        var width = when {
+            explicitWidth != null -> explicitWidth
+            inset != null -> (parentW - inset.left - inset.right).coerceAtLeast(0f)
             style["left"] != null && style["right"] != null -> {
                 val l = parsePixelOrPercent(style["left"], parentW, 0f)
                 val r = parsePixelOrPercent(style["right"], parentW, 0f)
@@ -80,8 +85,9 @@ object GeometryParser {
             else -> parentW
         }
 
-        val height = when {
-            style["height"] != null -> parsePixelOrPercent(style["height"], parentH, parentH)
+        var height = when {
+            explicitHeight != null -> explicitHeight
+            inset != null -> (parentH - inset.top - inset.bottom).coerceAtLeast(0f)
             style["top"] != null && style["bottom"] != null -> {
                 val t = parsePixelOrPercent(style["top"], parentH, 0f)
                 val b = parsePixelOrPercent(style["bottom"], parentH, 0f)
@@ -90,14 +96,21 @@ object GeometryParser {
             else -> parentH
         }
 
+        if (!isBorderBox) {
+            width += padLeft + padRight
+            height += padTop + padBottom
+        }
+
         val left = when {
             style["left"] != null -> parsePixelOrPercent(style["left"], parentW, 0f)
+            inset != null -> inset.left
             style["right"] != null -> parentW - parsePixelOrPercent(style["right"], parentW, 0f) - width
             else -> 0f
         }
 
         val top = when {
             style["top"] != null -> parsePixelOrPercent(style["top"], parentH, 0f)
+            inset != null -> inset.top
             style["bottom"] != null -> parentH - parsePixelOrPercent(style["bottom"], parentH, 0f) - height
             else -> 0f
         }

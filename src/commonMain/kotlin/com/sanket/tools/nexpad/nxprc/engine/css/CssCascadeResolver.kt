@@ -6,6 +6,7 @@ data class ComputedElementStyle(
     val base: Map<String, String>,
     val active: Map<String, String>,
     val hover: Map<String, String>,
+    val focus: Map<String, String> = emptyMap(),
     val before: Map<String, String>?,
     val after: Map<String, String>?
 )
@@ -21,6 +22,7 @@ object CssCascadeResolver {
         val baseRules = mutableListOf<Pair<Int, Map<String, String>>>()
         val activeRules = mutableListOf<Pair<Int, Map<String, String>>>()
         val hoverRules = mutableListOf<Pair<Int, Map<String, String>>>()
+        val focusRules = mutableListOf<Pair<Int, Map<String, String>>>()
         val beforeRules = mutableListOf<Pair<Int, Map<String, String>>>()
         val afterRules = mutableListOf<Pair<Int, Map<String, String>>>()
 
@@ -32,6 +34,8 @@ object CssCascadeResolver {
                         sel.pseudoElement == "after" -> afterRules.add(Pair(sel.specificity, rule.declarations))
                         sel.pseudoClass == "active" -> activeRules.add(Pair(sel.specificity, rule.declarations))
                         sel.pseudoClass == "hover" -> hoverRules.add(Pair(sel.specificity, rule.declarations))
+                        sel.pseudoClass == "focus" -> focusRules.add(Pair(sel.specificity, rule.declarations))
+                        sel.pseudoClass != null -> { /* Unhandled pseudo-classes do not pollute base rules */ }
                         else -> baseRules.add(Pair(sel.specificity, rule.declarations))
                     }
                 }
@@ -45,6 +49,7 @@ object CssCascadeResolver {
 
         val finalActive = mergeDeclarations(activeRules)
         val finalHover = mergeDeclarations(hoverRules)
+        val finalFocus = mergeDeclarations(focusRules)
         val finalBefore = if (beforeRules.isNotEmpty()) mergeDeclarations(beforeRules) else null
         val finalAfter = if (afterRules.isNotEmpty()) mergeDeclarations(afterRules) else null
 
@@ -53,6 +58,7 @@ object CssCascadeResolver {
             base = resolveVariables(finalBase, stylesheet.customProperties),
             active = resolveVariables(finalActive, stylesheet.customProperties),
             hover = resolveVariables(finalHover, stylesheet.customProperties),
+            focus = resolveVariables(finalFocus, stylesheet.customProperties),
             before = finalBefore?.let { resolveVariables(it, stylesheet.customProperties) },
             after = finalAfter?.let { resolveVariables(it, stylesheet.customProperties) }
         )

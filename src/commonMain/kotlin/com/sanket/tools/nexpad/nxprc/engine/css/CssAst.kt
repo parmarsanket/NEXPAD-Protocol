@@ -11,6 +11,11 @@ data class CssRule(
     val declarations: Map<String, String>
 )
 
+/**
+ * CSS Selector AST node.
+ * Supported pseudo-classes: :active, :hover, :focus.
+ * Supported pseudo-elements: ::before, ::after (and single-colon :before, :after).
+ */
 data class CssSelector(
     val raw: String,
     val tag: String? = null,
