@@ -51,22 +51,50 @@ object GradientParser {
             if (inner != null) {
                 var cx = defaultPos?.first ?: 0.5f
                 var cy = defaultPos?.second ?: 0.5f
+                var isExplicitRadius = false
                 var radiusRatio = 0.55f * defaultSizeRatio
+                var aspectRatio = 1.0f
 
                 // Check for extent keywords
                 when {
-                    inner.contains("closest-side") -> radiusRatio = 0.45f * defaultSizeRatio
-                    inner.contains("closest-corner") -> radiusRatio = 0.55f * defaultSizeRatio
-                    inner.contains("farthest-side") -> radiusRatio = 0.65f * defaultSizeRatio
-                    inner.contains("farthest-corner") -> radiusRatio = 0.81f * defaultSizeRatio
+                    inner.contains("closest-side") -> {
+                        radiusRatio = minOf(cx, 1f - cx, cy, 1f - cy).coerceAtLeast(0.1f) * defaultSizeRatio
+                        isExplicitRadius = true
+                    }
+                    inner.contains("closest-corner") -> {
+                        val dx = minOf(cx, 1f - cx)
+                        val dy = minOf(cy, 1f - cy)
+                        radiusRatio = kotlin.math.sqrt(dx * dx + dy * dy).coerceAtLeast(0.1f) * defaultSizeRatio
+                        isExplicitRadius = true
+                    }
+                    inner.contains("farthest-side") -> {
+                        radiusRatio = maxOf(cx, 1f - cx, cy, 1f - cy).coerceAtLeast(0.1f) * defaultSizeRatio
+                        isExplicitRadius = true
+                    }
+                    inner.contains("farthest-corner") -> {
+                        val dx = maxOf(cx, 1f - cx)
+                        val dy = maxOf(cy, 1f - cy)
+                        radiusRatio = kotlin.math.sqrt(dx * dx + dy * dy).coerceAtLeast(0.1f) * defaultSizeRatio
+                        isExplicitRadius = true
+                    }
                 }
 
-                // Check explicit radius: e.g. "circle 45px at ..." or "40% at ..."
-                val radiusMatcher = Pattern.compile("(?:circle\\s+|ellipse\\s+)?(\\d+(?:\\.\\d+)?)(px|%)?\\s+at").matcher(inner)
+                // Check explicit radius: e.g. "circle 45px at ..." or "40% at ..." or "ellipse 40px 20px at ..."
+                val radiusMatcher = Pattern.compile("(?:circle\\s+|ellipse\\s+)?(\\d+(?:\\.\\d+)?)(px|%)?(?:\\s+(\\d+(?:\\.\\d+)?)(px|%)?)?\\s+at").matcher(inner)
                 if (radiusMatcher.find()) {
-                    val rVal = radiusMatcher.group(1).toFloatOrNull() ?: 50f
-                    val unit = radiusMatcher.group(2)
-                    radiusRatio = if (unit == "%") (rVal / 100f) else (rVal / 100f) // normalized to viewBox ~100
+                    val rVal1 = radiusMatcher.group(1).toFloatOrNull() ?: 50f
+                    val unit1 = radiusMatcher.group(2)
+                    val rVal2 = radiusMatcher.group(3)?.toFloatOrNull()
+                    val unit2 = radiusMatcher.group(4)
+                    val r1 = if (unit1 == "%") (rVal1 / 100f) else (rVal1 / 100f)
+                    if (rVal2 != null) {
+                        val r2 = if (unit2 == "%") (rVal2 / 100f) else (rVal2 / 100f)
+                        radiusRatio = maxOf(r1, r2)
+                        aspectRatio = if (r2 > 0.001f) r1 / r2 else 1.0f
+                    } else {
+                        radiusRatio = r1
+                    }
+                    isExplicitRadius = true
                 }
 
                 // Check center position: "at X% Y%" or keyword positions
@@ -79,6 +107,7 @@ object GradientParser {
                     cy = resolved.second
                 }
 
+
                 val (colors, stops) = parseGradientStops(inner)
                 if (colors.size >= 2) {
                     return FillBrush.RadialGradient(
@@ -86,7 +115,8 @@ object GradientParser {
                         stops = stops,
                         radiusRatio = radiusRatio,
                         centerXRatio = cx,
-                        centerYRatio = cy
+                        centerYRatio = cy,
+                        aspectRatio = aspectRatio
                     )
                 }
             }
@@ -139,6 +169,19 @@ object GradientParser {
             if (inner != null) {
                 var cx = 0.5f
                 var cy = 0.5f
+                var startAngle = 0f
+
+                val fromMatcher = Pattern.compile("from\\s+(-?\\d+(?:\\.\\d+)?)(deg|turn|rad)?").matcher(inner)
+                if (fromMatcher.find()) {
+                    val num = fromMatcher.group(1).toFloatOrNull() ?: 0f
+                    val unit = fromMatcher.group(2)?.lowercase() ?: "deg"
+                    startAngle = when (unit) {
+                        "turn" -> ((num * 360f) % 360f + 360f) % 360f
+                        "rad" -> ((Math.toDegrees(num.toDouble()).toFloat() % 360f) + 360f) % 360f
+                        else -> ((num % 360f) + 360f) % 360f
+                    }
+                }
+
                 val atMatcher = Pattern.compile("at\\s+([a-zA-Z0-9%.-]+)(?:\\s+([a-zA-Z0-9%.-]+))?").matcher(inner)
                 if (atMatcher.find()) {
                     val pos1 = atMatcher.group(1).lowercase()
@@ -149,7 +192,13 @@ object GradientParser {
                 }
                 val (colors, stops) = parseGradientStops(inner)
                 if (colors.size >= 2) {
-                    return FillBrush.SweepGradient(colors = colors, centerXRatio = cx, centerYRatio = cy, stops = stops)
+                    return FillBrush.SweepGradient(
+                        colors = colors,
+                        centerXRatio = cx,
+                        centerYRatio = cy,
+                        stops = stops,
+                        startAngleDegrees = startAngle
+                    )
                 }
             }
         }

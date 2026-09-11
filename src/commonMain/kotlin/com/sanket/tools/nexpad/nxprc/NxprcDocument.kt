@@ -318,7 +318,9 @@ sealed class CanvasLayer {
         val shadowColor: Long? = null,
         val shadowOffsetY: Float = 2f,
         val highlightColor: Long? = null,
-        val textShadows: List<TextShadowDef> = emptyList()
+        val textShadows: List<TextShadowDef> = emptyList(),
+        val offsetXRatio: Float = 0f,
+        val offsetYRatio: Float = 0f
     ) : CanvasLayer()
 
     @Serializable
@@ -355,7 +357,8 @@ sealed class FillBrush {
         val radiusRatio: Float = 0.5f,
         val centerXRatio: Float = 0.5f,
         val centerYRatio: Float = 0.5f,
-        val stops: List<Float> = emptyList()
+        val stops: List<Float> = emptyList(),
+        val aspectRatio: Float = 1.0f
     ) : FillBrush()
 
     @Serializable
@@ -364,7 +367,8 @@ sealed class FillBrush {
         val colors: List<Long>,
         val centerXRatio: Float = 0.5f,
         val centerYRatio: Float = 0.5f,
-        val stops: List<Float> = emptyList()
+        val stops: List<Float> = emptyList(),
+        val startAngleDegrees: Float = 0f
     ) : FillBrush()
 }
 

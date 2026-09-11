@@ -458,7 +458,8 @@ object NxprcCompiler {
             parentHeight: Float,
             parentGlobalX: Float,
             parentGlobalY: Float,
-            isParentClipping: Boolean = false
+            isParentClipping: Boolean = false,
+            parentStackBase: Int = 60
         ) {
             val parentStyle = CssCascadeResolver.computeStyle(parentNode, stylesheet).base
             val childBoundsMap = layoutFlexContainerChildren(
@@ -476,7 +477,7 @@ object NxprcCompiler {
                 parentGlobalY: Float,
                 parentW: Float,
                 parentH: Float,
-                childStack: Int,
+                parentStack: Int,
                 isParentClipping: Boolean
             ) {
                 if (pseudoStyle == null || !isVisible(pseudoStyle)) return
@@ -508,7 +509,7 @@ object NxprcCompiler {
                 val pPolyPath = pClip?.pathData ?: ""
 
                 val pZ = GeometryParser.parseZIndex(pseudoStyle)
-                val pStack = childStack + (if (isBefore) 1 else 2) + pZ * 10
+                val pStack = parentStack + (if (isBefore) 1 else 2) + pZ * 10
 
                 val pBg = pseudoStyle["background"] ?: pseudoStyle["background-color"]
                 val pFills = if (pBg != null) {
@@ -611,7 +612,7 @@ object NxprcCompiler {
                 val cPolyPath = cClip?.pathData ?: ""
 
                 val childZ = GeometryParser.parseZIndex(childStyle)
-                val childStack = 60 + childZ * 10
+                val childStack = parentStackBase + childZ * 10
 
                 val cBg = childStyle["background"] ?: childStyle["background-color"]
                 val cFills = if (cBg != null) {
@@ -686,7 +687,7 @@ object NxprcCompiler {
                     parentGlobalY = globalY,
                     parentW = cWidth,
                     parentH = cHeight,
-                    childStack = childStack,
+                    parentStack = childStack,
                     isParentClipping = clipChild
                 )
 
@@ -724,7 +725,8 @@ object NxprcCompiler {
                         parentHeight = cHeight,
                         parentGlobalX = globalX,
                         parentGlobalY = globalY,
-                        isParentClipping = clipChild
+                        isParentClipping = clipChild,
+                        parentStackBase = childStack
                     )
                 }
 
@@ -736,7 +738,7 @@ object NxprcCompiler {
                     parentGlobalY = globalY,
                     parentW = cWidth,
                     parentH = cHeight,
-                    childStack = childStack,
+                    parentStack = childStack,
                     isParentClipping = clipChild
                 )
             }
@@ -880,6 +882,29 @@ object NxprcCompiler {
             }
         }
 
+        fun computeNodeGlobalCenter(node: DomNode, rootNode: DomNode, rootW: Float, rootH: Float): Pair<Float, Float> {
+            if (node == rootNode) return Pair(rootW / 2f, rootH / 2f)
+            val path = mutableListOf<DomNode>()
+            var cur: DomNode? = node
+            while (cur != null && cur != rootNode) {
+                path.add(0, cur)
+                cur = cur.parent
+            }
+            var curX = 0f
+            var curY = 0f
+            var pW = rootW
+            var pH = rootH
+            for (elem in path) {
+                val elemStyle = CssCascadeResolver.computeStyle(elem, stylesheet).base
+                val b = GeometryParser.computeBoxBounds(elemStyle, pW, pH)
+                curX += b.left
+                curY += b.top
+                pW = b.width
+                pH = b.height
+            }
+            return Pair(curX + pW / 2f, curY + pH / 2f)
+        }
+
         // 7. Center Text Label (Embossed 3D + Glow Text Shadows)
         var centerGlyphAdded = false
         if (textNode != null) {
@@ -903,6 +928,10 @@ object NxprcCompiler {
                 val textZ = GeometryParser.parseZIndex(textStyle)
                 val textStack = 200 + textZ * 10
 
+                val (tcX, tcY) = computeNodeGlobalCenter(textNode, primaryNode, buttonWidth, buttonHeight)
+                val offXRatio = (tcX - buttonWidth / 2f) / buttonWidth
+                val offYRatio = (tcY - buttonHeight / 2f) / buttonHeight
+
                 addLayer(
                     textStack,
                     CanvasLayer.CenterGlyph(
@@ -912,7 +941,9 @@ object NxprcCompiler {
                         shadowColor = darkTextShadow?.color ?: NxprcDefaults.DEFAULT_SHADOW_COLOR,
                         shadowOffsetY = darkTextShadow?.offsetY ?: 2.5f,
                         highlightColor = lightTextHighlight?.color ?: NxprcDefaults.DEFAULT_HIGHLIGHT_COLOR,
-                        textShadows = textShadows
+                        textShadows = textShadows,
+                        offsetXRatio = offXRatio,
+                        offsetYRatio = offYRatio
                     )
                 )
                 centerGlyphAdded = true
