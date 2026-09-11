@@ -378,7 +378,8 @@ data class StrokeStyle(
     val width: Float = 2f,
     val isDashed: Boolean = false,
     val dashWidth: Float = 0f,
-    val dashGap: Float = 0f
+    val dashGap: Float = 0f,
+    val isTopOnly: Boolean = false
 )
 
 @Serializable

@@ -112,7 +112,8 @@ object NxprcCompiler {
         val outsetShadows = allBoxShadows.filter { !it.isInset }
         val insetShadows = allBoxShadows.filter { it.isInset }
 
-        val border = GeometryParser.parseBorder(baseProps["border"] ?: baseProps["border-top"] ?: baseProps["border-width"])
+        val isRootTopOnly = baseProps["border"] == null && baseProps["border-top"] != null
+        val border = GeometryParser.parseBorder(baseProps["border"] ?: baseProps["border-top"] ?: baseProps["border-width"], isTopOnly = isRootTopOnly)
         val radii = GeometryParser.parseBorderRadius(baseProps["border-radius"], defaultSizeDp = buttonWidth)
 
         val rootClip = GeometryParser.parseClipPath(baseProps["clip-path"] ?: baseProps["-webkit-clip-path"], buttonWidth, buttonHeight)
@@ -316,7 +317,8 @@ object NxprcCompiler {
 
             val beforeOpacity = beforeStyle["opacity"]?.toFloatOrNull() ?: 1.0f
             val beforeFilter = FilterParser.parse(beforeStyle["filter"])
-            val beforeBorder = GeometryParser.parseBorder(beforeStyle["border"] ?: beforeStyle["border-width"])
+            val isBeforeTopOnly = beforeStyle["border"] == null && beforeStyle["border-top"] != null
+            val beforeBorder = GeometryParser.parseBorder(beforeStyle["border"] ?: beforeStyle["border-top"] ?: beforeStyle["border-width"], isTopOnly = isBeforeTopOnly)
             val rawBeforeBounds = GeometryParser.computeBoxBounds(beforeStyle, buttonWidth, buttonHeight)
             val bounds = resolveFlexChildBounds(
                 parentStyle = baseProps,
@@ -412,8 +414,8 @@ object NxprcCompiler {
                             filter = beforeFilterDef,
                             opacity = beforeOpacity,
                             rotationDegrees = beforeTransform.rotationDegrees,
-                            offsetXRatio = beforeTransform.translateX / buttonWidth,
-                            offsetYRatio = beforeTransform.translateY / buttonHeight,
+                            offsetXRatio = (beforeLeft + beforeTransform.translateX) / buttonWidth,
+                            offsetYRatio = (beforeTop + beforeTransform.translateY) / buttonHeight,
                             widthRatio = beforeWidth / buttonWidth,
                             heightRatio = beforeHeight / buttonHeight,
                             scaleX = beforeTransform.scaleX,
@@ -495,7 +497,8 @@ object NxprcCompiler {
                 val pGlobalY = parentGlobalY + pLocalTop
 
                 val pRadii = GeometryParser.parseBorderRadius(pseudoStyle["border-radius"], defaultSizeDp = pWidth)
-                val pBorder = GeometryParser.parseBorder(pseudoStyle["border"] ?: pseudoStyle["border-top"] ?: pseudoStyle["border-width"])
+                val isPseudoTopOnly = pseudoStyle["border"] == null && pseudoStyle["border-top"] != null
+                val pBorder = GeometryParser.parseBorder(pseudoStyle["border"] ?: pseudoStyle["border-top"] ?: pseudoStyle["border-width"], isTopOnly = isPseudoTopOnly)
                 val pClip = GeometryParser.parseClipPath(pseudoStyle["clip-path"] ?: pseudoStyle["-webkit-clip-path"], pWidth, pHeight)
                 val isPOval = pseudoStyle["border-radius"]?.contains("50%") == true ||
                     (pRadii.topLeft >= (pWidth * 0.35f) && pRadii.topRight >= (pWidth * 0.35f) &&
@@ -598,7 +601,8 @@ object NxprcCompiler {
                 val globalY = parentGlobalY + localTop
 
                 val cRadii = GeometryParser.parseBorderRadius(childStyle["border-radius"], defaultSizeDp = cWidth)
-                val cBorder = GeometryParser.parseBorder(childStyle["border"] ?: childStyle["border-top"] ?: childStyle["border-width"])
+                val isChildTopOnly = childStyle["border"] == null && childStyle["border-top"] != null
+                val cBorder = GeometryParser.parseBorder(childStyle["border"] ?: childStyle["border-top"] ?: childStyle["border-width"], isTopOnly = isChildTopOnly)
                 val cClip = GeometryParser.parseClipPath(childStyle["clip-path"] ?: childStyle["-webkit-clip-path"], cWidth, cHeight)
                 val isCOval = childStyle["border-radius"]?.contains("50%") == true ||
                     (cRadii.topLeft >= (cWidth * 0.35f) && cRadii.topRight >= (cWidth * 0.35f) &&
@@ -786,7 +790,8 @@ object NxprcCompiler {
                 afterHeight
             )
             val afterShadows = afterStyle["box-shadow"]?.let { ShadowParser.parseBoxShadows(it) } ?: emptyList()
-            val afterBorder = GeometryParser.parseBorder(afterStyle["border"] ?: afterStyle["border-top"])
+            val isAfterTopOnly = afterStyle["border"] == null && afterStyle["border-top"] != null
+            val afterBorder = GeometryParser.parseBorder(afterStyle["border"] ?: afterStyle["border-top"], isTopOnly = isAfterTopOnly)
             val afterRadii = GeometryParser.parseBorderRadius(afterStyle["border-radius"], defaultSizeDp = afterWidth)
             val afterClip = GeometryParser.parseClipPath(afterStyle["clip-path"] ?: afterStyle["-webkit-clip-path"], afterWidth, afterHeight)
             val isAfterOval = afterStyle["border-radius"]?.contains("50%") == true ||
@@ -811,7 +816,7 @@ object NxprcCompiler {
                 hasFilter = afterFilterDef.blurRadius > 0f || afterFilterDef.brightness != 1f || afterFilterDef.saturation != 1f
             )
 
-            if (isBoxPrimitive && (afterBgs.isNotEmpty() || afterBorder != null || afterShadows.isNotEmpty())) {
+            if (afterBgs.isNotEmpty() || afterBorder != null || (isBoxPrimitive && afterShadows.isNotEmpty())) {
                 addLayer(
                     afterStack,
                     CanvasLayer.BoxLayer(
@@ -894,13 +899,29 @@ object NxprcCompiler {
             var curY = 0f
             var pW = rootW
             var pH = rootH
+            var currentParent = rootNode
             for (elem in path) {
-                val elemStyle = CssCascadeResolver.computeStyle(elem, stylesheet).base
-                val b = GeometryParser.computeBoxBounds(elemStyle, pW, pH)
+                val parentStyle = CssCascadeResolver.computeStyle(currentParent, stylesheet).base
+                val flexBoundsMap = layoutFlexContainerChildren(currentParent, parentStyle, stylesheet, pW, pH)
+                val b = flexBoundsMap[elem] ?: run {
+                    val elemStyle = CssCascadeResolver.computeStyle(elem, stylesheet).base
+                    val raw = GeometryParser.computeBoxBounds(elemStyle, pW, pH)
+                    val isParentFlex = parentStyle["display"]?.trim()?.lowercase() == "flex"
+                    val isParentAlignCenter = parentStyle["align-items"]?.trim()?.lowercase() == "center"
+                    val isParentJustifyCenter = parentStyle["justify-content"]?.trim()?.lowercase() == "center"
+                    val left = if (raw.left == 0f && (isParentJustifyCenter || elemStyle["margin"] == "auto" || (isParentFlex && !parentStyle.containsKey("justify-content")))) {
+                        (pW - raw.width) / 2f
+                    } else raw.left
+                    val top = if (raw.top == 0f && (isParentAlignCenter || elemStyle["margin"] == "auto" || (isParentFlex && !parentStyle.containsKey("align-items")))) {
+                        (pH - raw.height) / 2f
+                    } else raw.top
+                    raw.copy(left = left, top = top)
+                }
                 curX += b.left
                 curY += b.top
                 pW = b.width
                 pH = b.height
+                currentParent = elem
             }
             return Pair(curX + pW / 2f, curY + pH / 2f)
         }

@@ -118,7 +118,7 @@ object GeometryParser {
         return ComputedBoxBounds(left = left, top = top, width = width, height = height)
     }
 
-    fun parseBorder(borderStr: String?): StrokeStyle? {
+    fun parseBorder(borderStr: String?, isTopOnly: Boolean = false): StrokeStyle? {
         if (borderStr.isNullOrBlank() || borderStr.trim().equals("none", ignoreCase = true)) return null
         val color = ColorParser.extractColorAnywhere(borderStr) ?: 0xFF00F0FFL
 
@@ -145,7 +145,8 @@ object GeometryParser {
             width = width,
             isDashed = isDashed || isDotted,
             dashWidth = dashWidth,
-            dashGap = dashGap
+            dashGap = dashGap,
+            isTopOnly = isTopOnly
         )
     }
 
