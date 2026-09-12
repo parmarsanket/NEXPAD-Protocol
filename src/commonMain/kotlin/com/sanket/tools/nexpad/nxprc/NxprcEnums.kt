@@ -19,6 +19,7 @@ enum class IdleAnimationType(val id: String) {
     PULSE("PULSE"),
     ROTATE("ROTATE"),
     SHIMMER("SHIMMER"),
+    RGB_CYCLE("RGB_CYCLE"),
     NONE("NONE");
 }
 

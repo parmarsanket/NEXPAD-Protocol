@@ -202,10 +202,74 @@ object AnimationParser {
 
     fun isPulsingAnimation(stylesheet: CssStylesheet, props: Map<String, String>): Boolean {
         val anim = props["animation"] ?: props["animation-name"] ?: ""
-        if (anim.contains("pulse", ignoreCase = true) || anim.contains("glow", ignoreCase = true)) return true
+        if (anim.contains("pulse", ignoreCase = true) || anim.contains("glow", ignoreCase = true) || anim.contains("breathe", ignoreCase = true)) return true
         stylesheet.keyframes.values.forEach { kf ->
-            if (kf.name.contains("pulse", ignoreCase = true)) return true
+            if (kf.name.contains("pulse", ignoreCase = true) || kf.name.contains("glow", ignoreCase = true) || kf.name.contains("breathe", ignoreCase = true)) return true
         }
         return false
+    }
+
+    fun isRgbCycleAnimation(stylesheet: CssStylesheet, props: Map<String, String>): Boolean {
+        val anim = props["animation"] ?: props["animation-name"] ?: ""
+        val filter = props["filter"] ?: ""
+        if (anim.contains("rgb", ignoreCase = true) || anim.contains("rainbow", ignoreCase = true) ||
+            anim.contains("chroma", ignoreCase = true) || anim.contains("hue", ignoreCase = true)) return true
+        if (filter.contains("hue-rotate", ignoreCase = true)) return true
+
+        stylesheet.keyframes.values.forEach { kf ->
+            val kn = kf.name.lowercase()
+            if (kn.contains("rgb") || kn.contains("rainbow") || kn.contains("chroma") || kn.contains("hue")) {
+                return true
+            }
+            if (kf.steps.any { step -> step.declarations.any { (k, v) -> k == "filter" && v.contains("hue-rotate") } }) {
+                return true
+            }
+        }
+        return false
+    }
+
+    fun isShimmerAnimation(stylesheet: CssStylesheet, props: Map<String, String>): Boolean {
+        val anim = props["animation"] ?: props["animation-name"] ?: ""
+        if (anim.contains("shimmer", ignoreCase = true) || anim.contains("shine", ignoreCase = true) ||
+            anim.contains("glimmer", ignoreCase = true) || anim.contains("sweep", ignoreCase = true)) return true
+
+        stylesheet.keyframes.values.forEach { kf ->
+            val kn = kf.name.lowercase()
+            if (kn.contains("shimmer") || kn.contains("shine") || kn.contains("glimmer") || kn.contains("sweep")) {
+                return true
+            }
+        }
+        return false
+    }
+
+    fun detectSvgAnimation(root: com.sanket.tools.nexpad.nxprc.engine.dom.DomNode): com.sanket.tools.nexpad.nxprc.IdleAnimationType? {
+        var detected: com.sanket.tools.nexpad.nxprc.IdleAnimationType? = null
+        fun recurse(node: com.sanket.tools.nexpad.nxprc.engine.dom.DomNode) {
+            if (detected != null) return
+            val tag = node.tag.lowercase()
+            if (tag == "animatetransform") {
+                val type = node.attributes["type"]?.lowercase()
+                if (type == "rotate") {
+                    detected = com.sanket.tools.nexpad.nxprc.IdleAnimationType.ROTATE
+                    return
+                } else if (type == "scale") {
+                    detected = com.sanket.tools.nexpad.nxprc.IdleAnimationType.PULSE
+                    return
+                }
+            } else if (tag == "animate") {
+                val attrName = node.attributes["attributename"]?.lowercase()
+                val values = node.attributes["values"] ?: ""
+                if (attrName == "opacity" || attrName == "r") {
+                    detected = com.sanket.tools.nexpad.nxprc.IdleAnimationType.PULSE
+                    return
+                } else if (attrName == "fill" || attrName == "stroke" || values.contains("hue-rotate")) {
+                    detected = com.sanket.tools.nexpad.nxprc.IdleAnimationType.RGB_CYCLE
+                    return
+                }
+            }
+            node.children.forEach { recurse(it) }
+        }
+        recurse(root)
+        return detected
     }
 }

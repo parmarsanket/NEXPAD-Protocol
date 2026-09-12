@@ -505,11 +505,17 @@ object NxprcCompiler {
 
         val isRotating = AnimationParser.isRotatingAnimation(stylesheet, baseProps)
         val isPulsing = AnimationParser.isPulsingAnimation(stylesheet, baseProps)
+        val isRgbCycle = AnimationParser.isRgbCycleAnimation(stylesheet, baseProps)
+        val isShimmer = AnimationParser.isShimmerAnimation(stylesheet, baseProps)
+        val svgAnim = AnimationParser.detectSvgAnimation(primaryNode) ?: AnimationParser.detectSvgAnimation(parsed.root)
 
         val idleType = when {
-            isRotating -> "ROTATE"
-            isPulsing -> "PULSE"
-            else -> "NONE"
+            svgAnim != null -> svgAnim.name
+            isRgbCycle -> com.sanket.tools.nexpad.nxprc.IdleAnimationType.RGB_CYCLE.name
+            isRotating -> com.sanket.tools.nexpad.nxprc.IdleAnimationType.ROTATE.name
+            isPulsing -> com.sanket.tools.nexpad.nxprc.IdleAnimationType.PULSE.name
+            isShimmer -> com.sanket.tools.nexpad.nxprc.IdleAnimationType.SHIMMER.name
+            else -> com.sanket.tools.nexpad.nxprc.IdleAnimationType.NONE.name
         }
 
         val autoControl = primaryNode.attributes["data-control"]
@@ -574,7 +580,11 @@ object NxprcCompiler {
                 pressScale = pressScale,
                 pressOffsetY = pressOffsetY,
                 springStiffness = 850f,
-                springDamping = 0.65f
+                springDamping = 0.65f,
+                enableGameRumble = true,
+                rumbleIntensity = 1.0f,
+                joystickSpringTension = if (autoCategory.equals("JOYSTICK", ignoreCase = true)) 800f else 750f,
+                triggerMaxPullDepth = if (autoCategory.equals("TRIGGER", ignoreCase = true)) 16f else 12f
             )
         )
     }

@@ -384,11 +384,15 @@ data class StrokeStyle(
 
 @Serializable
 data class NxprcAnimations(
-    val idleType: String = "PULSE",       // PULSE, ROTATE, SHIMMER, NONE
+    val idleType: String = "PULSE",       // PULSE, ROTATE, SHIMMER, RGB_CYCLE, NONE
     val idleDurationMs: Int = 2000,
     val pressFeedback: String = "SPRING", // SPRING, SHOCKWAVE, FLASH
     val springStiffness: Float = 600f,
     val springDamping: Float = 0.65f,
     val pressScale: Float = 0.88f,
-    val pressOffsetY: Float = 0f
+    val pressOffsetY: Float = 0f,
+    val enableGameRumble: Boolean = true,
+    val rumbleIntensity: Float = 1.0f,
+    val joystickSpringTension: Float = 750f,
+    val triggerMaxPullDepth: Float = 12f
 )

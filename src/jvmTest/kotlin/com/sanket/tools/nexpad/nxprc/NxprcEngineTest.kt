@@ -1179,4 +1179,63 @@ class NxprcEngineTest {
         assertTrue(rectLayer.fill is FillBrush.Solid)
         assertEquals(0xFFFFA500L, (rectLayer.fill as FillBrush.Solid).color)
     }
+
+    @Test
+    fun testGamepadAnimationDetectionAndMetadata() {
+        // 1. CSS RGB rainbow cycle detection
+        val rgbHtml = """
+            <style>
+                @keyframes rgb-chroma {
+                    0% { filter: hue-rotate(0deg); }
+                    100% { filter: hue-rotate(360deg); }
+                }
+                .rgb-button {
+                    animation: rgb-chroma 4s linear infinite;
+                    background: #FF0055;
+                }
+            </style>
+            <button class="rgb-button" data-category="BUTTON">A</button>
+        """.trimIndent()
+        val rgbDoc = NxprcPackager.compile(rgbHtml, id = "rc.rgb_btn")
+        assertEquals(IdleAnimationType.RGB_CYCLE.name, rgbDoc.animations.idleType)
+        assertTrue(rgbDoc.animations.enableGameRumble)
+        assertEquals(1.0f, rgbDoc.animations.rumbleIntensity)
+
+        // 2. SVG animateTransform rotation detection
+        val svgRotHtml = """
+            <button data-category="JOYSTICK">
+                <svg viewBox="0 0 100 100">
+                    <circle cx="50" cy="50" r="40">
+                        <animateTransform attributeName="transform" type="rotate" from="0 50 50" to="360 50 50" dur="2s" repeatCount="indefinite" />
+                    </circle>
+                </svg>
+            </button>
+        """.trimIndent()
+        val stickDoc = NxprcPackager.compile(svgRotHtml, id = "rc.stick_btn")
+        assertEquals(IdleAnimationType.ROTATE.name, stickDoc.animations.idleType)
+        assertEquals(800f, stickDoc.animations.joystickSpringTension)
+
+        // 3. SVG opacity pulse detection
+        val svgPulseHtml = """
+            <button data-category="TRIGGER">
+                <svg viewBox="0 0 100 100">
+                    <path d="M 10 10 L 90 90">
+                        <animate attributeName="opacity" values="0.3;1;0.3" dur="1.5s" repeatCount="indefinite" />
+                    </path>
+                </svg>
+            </button>
+        """.trimIndent()
+        val triggerDoc = NxprcPackager.compile(svgPulseHtml, id = "rc.trigger_btn")
+        assertEquals(IdleAnimationType.PULSE.name, triggerDoc.animations.idleType)
+        assertEquals(16f, triggerDoc.animations.triggerMaxPullDepth)
+
+        // 4. Binary serialization round-trip with all new animation fields
+        val encoded = NxprcDocument.encodeToBytes(rgbDoc)
+        val decoded = NxprcDocument.decodeFromBytes(encoded).getOrThrow()
+        assertEquals(IdleAnimationType.RGB_CYCLE.name, decoded.animations.idleType)
+        assertTrue(decoded.animations.enableGameRumble)
+        assertEquals(1.0f, decoded.animations.rumbleIntensity)
+        assertEquals(750f, decoded.animations.joystickSpringTension)
+        assertEquals(12f, decoded.animations.triggerMaxPullDepth)
+    }
 }
