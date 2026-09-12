@@ -7,11 +7,9 @@ package com.sanket.tools.nexpad.nxprc.engine.css
  */
 object CssTokenizer {
 
-    private val KEYFRAMES_REGEX = Regex("@(?:-[a-zA-Z]+-)?keyframes\\s+([a-zA-Z0-9_-]+)\\s*\\{")
-    private val MIN_WIDTH_REGEX = Regex("min-width\\s*:\\s*([0-9.]+)px", RegexOption.IGNORE_CASE)
-    private val MAX_WIDTH_REGEX = Regex("max-width\\s*:\\s*([0-9.]+)px", RegexOption.IGNORE_CASE)
-    private val COMMENT_REGEX = Regex("/\\*[\\s\\S]*?\\*/")
-    private val IMPORTANT_REGEX = Regex("\\s*!important\\s*$", RegexOption.IGNORE_CASE)
+    private val KEYFRAMES_REGEX = CssRulePattern.KEYFRAMES.regex
+    private val MIN_WIDTH_REGEX = CssRulePattern.MIN_WIDTH.regex
+    private val MAX_WIDTH_REGEX = CssRulePattern.MAX_WIDTH.regex
 
     /**
      * Parse the supported CSS subset. Conditional blocks are ignored unless a
@@ -102,9 +100,7 @@ object CssTokenizer {
         return (min == null || width >= min) && (max == null || width <= max)
     }
 
-    private fun stripComments(css: String): String {
-        return css.replace(COMMENT_REGEX, "")
-    }
+    private fun stripComments(css: String): String = CssDeclarationParser.stripComments(css)
 
     private fun findMatchingBrace(text: String, openPos: Int): Int {
         var depth = 0
@@ -118,52 +114,9 @@ object CssTokenizer {
         return -1
     }
 
-    fun parseDeclarations(body: String): Map<String, String> {
-        val decls = mutableMapOf<String, String>()
-        val parts = splitDeclarations(body)
+    fun parseDeclarations(body: String): Map<String, String> = CssDeclarationParser.parseDeclarations(body)
 
-        for (part in parts) {
-            val colonIdx = part.indexOf(':')
-            if (colonIdx > 0) {
-                val prop = part.substring(0, colonIdx).trim().lowercase()
-                val value = part.substring(colonIdx + 1).trim()
-                if (prop.isNotBlank() && value.isNotBlank()) {
-                    decls[prop] = value.replace(IMPORTANT_REGEX, "").trim()
-                }
-            }
-        }
-        return decls
-    }
-
-    fun splitDeclarations(body: String): List<String> {
-        val list = mutableListOf<String>()
-        var start = 0
-        var parenDepth = 0
-        var inSingleQuote = false
-        var inDoubleQuote = false
-
-        for (i in body.indices) {
-            val c = body[i]
-            if (c == '\'' && !inDoubleQuote) {
-                inSingleQuote = !inSingleQuote
-            } else if (c == '"' && !inSingleQuote) {
-                inDoubleQuote = !inDoubleQuote
-            } else if (!inSingleQuote && !inDoubleQuote) {
-                if (c == '(') parenDepth++
-                else if (c == ')') parenDepth--
-                else if (c == ';' && parenDepth == 0) {
-                    val stmt = body.substring(start, i).trim()
-                    if (stmt.isNotBlank()) list.add(stmt)
-                    start = i + 1
-                }
-            }
-        }
-        if (start < body.length) {
-            val last = body.substring(start).trim()
-            if (last.isNotBlank()) list.add(last)
-        }
-        return list
-    }
+    fun splitDeclarations(body: String): List<String> = CssDeclarationParser.splitDeclarations(body)
 
     private fun parseKeyframeSteps(body: String): List<CssKeyframeStep> {
         val steps = mutableListOf<CssKeyframeStep>()

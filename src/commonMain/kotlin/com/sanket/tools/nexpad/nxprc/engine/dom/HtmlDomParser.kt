@@ -20,16 +20,16 @@ object HtmlDomParser {
         "circle", "rect", "polygon", "polyline", "line"
     )
 
-    private val STYLE_PATTERN = Pattern.compile("<style[^>]*>([\\s\\S]*?)</style>", Pattern.CASE_INSENSITIVE)
-    private val STRIP_TAG_REGEX = Regex("<[^>]+>")
-    private val COMMENT_REGEX = Regex("<!--[\\s\\S]*?-->")
-    private val DOCTYPE_REGEX = Regex("<!DOCTYPE[^>]*>", RegexOption.IGNORE_CASE)
-    private val HEAD_REGEX = Regex("<head[\\s\\S]*?</head>", RegexOption.IGNORE_CASE)
-    private val SCRIPT_REGEX = Regex("<script[\\s\\S]*?</script>", RegexOption.IGNORE_CASE)
-    private val STYLE_BLOCK_REGEX = Regex("<style[\\s\\S]*?</style>", RegexOption.IGNORE_CASE)
-    private val TAG_PATTERN = Pattern.compile("<(/?)([a-zA-Z0-9_-]+)((?:\\s+[^>]+)?)(/?)>|([^<]+)")
-    private val ATTR_PATTERN = Pattern.compile("([a-zA-Z0-9_-]+)(?:\\s*=\\s*(?:([\"'])([\\s\\S]*?)\\2|([^\\s>]+)))?")
-    private val WHITESPACE_REGEX = Regex("\\s+")
+    private val STYLE_PATTERN = HtmlPattern.STYLE.pattern
+    private val STRIP_TAG_REGEX = HtmlSanitizeRegex.STRIP_TAG.regex
+    private val COMMENT_REGEX = HtmlSanitizeRegex.COMMENT.regex
+    private val DOCTYPE_REGEX = HtmlSanitizeRegex.DOCTYPE.regex
+    private val HEAD_REGEX = HtmlSanitizeRegex.HEAD.regex
+    private val SCRIPT_REGEX = HtmlSanitizeRegex.SCRIPT.regex
+    private val STYLE_BLOCK_REGEX = HtmlSanitizeRegex.STYLE_BLOCK.regex
+    private val TAG_PATTERN = HtmlPattern.TAG.pattern
+    private val ATTR_PATTERN = HtmlPattern.ATTR.pattern
+    private val WHITESPACE_REGEX = HtmlSanitizeRegex.WHITESPACE.regex
 
     fun parse(html: String): ParsedHtmlResult {
         // 1. Extract embedded <style> blocks and sanitize stray tags

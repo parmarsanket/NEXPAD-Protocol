@@ -13,10 +13,10 @@ import java.util.regex.Pattern
  */
 object ShadowParser {
 
-    private val PAREN_COLOR_REGEX = Pattern.compile("(?:rgba?|hsla?)\\([^)]+\\)")
-    private val HEX_COLOR_REGEX = Pattern.compile("#[0-9a-fA-F]{3,8}\\b")
-    private val LENGTH_REGEX = Pattern.compile("(-?\\d+(?:\\.\\d+)?)(?:px)?")
-    private val TOKEN_DELIMITER_REGEX = Pattern.compile("[^a-z0-9_-]+")
+    private val PAREN_COLOR_REGEX = ColorPattern.PARENTHESIZED.pattern
+    private val HEX_COLOR_REGEX = ColorPattern.HEX_STANDALONE.pattern
+    private val LENGTH_REGEX = CssSyntaxPattern.LENGTH.pattern
+    private val TOKEN_DELIMITER_REGEX = ColorPattern.WORD_SPLIT.pattern
 
     fun parseBoxShadows(shadowStr: String?): List<BoxShadowDef> {
         if (shadowStr.isNullOrBlank() || shadowStr.trim().equals("none", ignoreCase = true)) {

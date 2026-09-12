@@ -16,8 +16,6 @@ data class ComputedElementStyle(
  */
 object CssCascadeResolver {
 
-    private val INNER_VAR_REGEX = Regex("""var\s*\(\s*(--[a-zA-Z0-9_-]+)(?:\s*,\s*([^()]+))?\s*\)""")
-
     fun computeStyle(node: DomNode, stylesheet: CssStylesheet): ComputedElementStyle {
         val baseRules = mutableListOf<Pair<Int, Map<String, String>>>()
         val activeRules = mutableListOf<Pair<Int, Map<String, String>>>()
@@ -55,12 +53,12 @@ object CssCascadeResolver {
 
         // Resolve CSS Variables: var(--name, fallback)
         return ComputedElementStyle(
-            base = resolveVariables(finalBase, stylesheet.customProperties),
-            active = resolveVariables(finalActive, stylesheet.customProperties),
-            hover = resolveVariables(finalHover, stylesheet.customProperties),
-            focus = resolveVariables(finalFocus, stylesheet.customProperties),
-            before = finalBefore?.let { resolveVariables(it, stylesheet.customProperties) },
-            after = finalAfter?.let { resolveVariables(it, stylesheet.customProperties) }
+            base = CssVariableResolver.resolveVariables(finalBase, stylesheet.customProperties),
+            active = CssVariableResolver.resolveVariables(finalActive, stylesheet.customProperties),
+            hover = CssVariableResolver.resolveVariables(finalHover, stylesheet.customProperties),
+            focus = CssVariableResolver.resolveVariables(finalFocus, stylesheet.customProperties),
+            before = finalBefore?.let { CssVariableResolver.resolveVariables(it, stylesheet.customProperties) },
+            after = finalAfter?.let { CssVariableResolver.resolveVariables(it, stylesheet.customProperties) }
         )
     }
 
@@ -106,29 +104,6 @@ object CssCascadeResolver {
         val result = mutableMapOf<String, String>()
         for ((_, decls) in sorted) {
             result.putAll(decls)
-        }
-        return result
-    }
-
-    private fun resolveVariables(decls: Map<String, String>, customProps: Map<String, String>): Map<String, String> {
-        val resolved = mutableMapOf<String, String>()
-        for ((prop, rawVal) in decls) {
-            resolved[prop] = resolveVarExpressions(rawVal, customProps, decls)
-        }
-        return resolved
-    }
-
-    private fun resolveVarExpressions(value: String, customProps: Map<String, String>, decls: Map<String, String>): String {
-        var result = value
-        var maxIter = 10 // Prevent infinite recursion on circular references
-        while (result.contains("var(") && maxIter-- > 0) {
-            val replaced = INNER_VAR_REGEX.replace(result) { match ->
-                val varName = match.groupValues[1]
-                val fallback = match.groupValues[2].trim()
-                customProps[varName] ?: decls[varName] ?: fallback
-            }
-            if (replaced == result) break // No further substitutions possible
-            result = replaced
         }
         return result
     }

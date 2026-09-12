@@ -24,9 +24,9 @@ data class ParsedTransform(
  */
 object AnimationParser {
 
-    private val FUNC_PATTERN = Pattern.compile("([a-zA-Z0-9]+)\\s*\\(([^)]+)\\)")
-    private val DELIMITER_PATTERN = Pattern.compile("[,\\s]+")
-    private val NUMBER_PATTERN = Pattern.compile("(-?[0-9.]+)")
+    private val FUNC_PATTERN = CssSyntaxPattern.FUNCTION_CALL.pattern
+    private val DELIMITER_PATTERN = ColorPattern.DELIMITER.pattern
+    private val NUMBER_PATTERN = CssSyntaxPattern.NUMBER.pattern
 
     fun parseTransforms(
         transformStr: String?,
@@ -175,13 +175,7 @@ object AnimationParser {
 
     private fun parseAngle(s: String): Float {
         val clean = s.trim().lowercase()
-        val num = parseNumber(clean) ?: 0.0f
-        return when {
-            clean.endsWith("rad") -> Math.toDegrees(num.toDouble()).toFloat()
-            clean.endsWith("turn") -> num * 360f
-            clean.endsWith("grad") -> num * 0.9f
-            else -> num // default deg
-        }
+        return AngleUnit.parseToDegrees(clean) ?: (parseNumber(clean) ?: 0f)
     }
 
     private fun parseDimension(s: String, reference: Float = 100f): Float {

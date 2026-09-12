@@ -1,28 +1,8 @@
 package com.sanket.tools.nexpad.nxprc.engine.parsers
 
+import com.sanket.tools.nexpad.nxprc.LayerShapeType
 import com.sanket.tools.nexpad.nxprc.StrokeStyle
-import java.util.regex.Pattern
 
-data class CornerRadii(
-    val topLeft: Float = 0f,
-    val topRight: Float = 0f,
-    val bottomRight: Float = 0f,
-    val bottomLeft: Float = 0f
-)
-
-data class InsetRect(
-    val top: Float = 0f,
-    val right: Float = 0f,
-    val bottom: Float = 0f,
-    val left: Float = 0f
-)
-
-data class ComputedBoxBounds(
-    val left: Float = 0f,
-    val top: Float = 0f,
-    val width: Float = 0f,
-    val height: Float = 0f
-)
 
 /**
  * Dedicated parser for CSS geometry, borders, and dimensions:
@@ -33,11 +13,11 @@ data class ComputedBoxBounds(
  */
 object GeometryParser {
 
-    private val INSET_PATTERN = Pattern.compile("(-?\\d+(?:\\.\\d+)?)(?:px|%)?")
-    private val BORDER_WIDTH_PATTERN = Pattern.compile("(\\d+(?:\\.\\d+)?)(?:px)?")
-    private val RADIUS_PATTERN = Pattern.compile("(\\d+(?:\\.\\d+)?)(?:px|%)?")
-    private val PX_PATTERN = Pattern.compile("(-?\\d+(?:\\.\\d+)?)(?:px)?")
-    private val WHITESPACE_PATTERN = Pattern.compile("\\s+")
+    private val INSET_PATTERN = CssSyntaxPattern.INSET.pattern
+    private val BORDER_WIDTH_PATTERN = CssSyntaxPattern.BORDER_WIDTH.pattern
+    private val RADIUS_PATTERN = CssSyntaxPattern.RADIUS.pattern
+    private val PX_PATTERN = CssSyntaxPattern.PIXEL.pattern
+    private val WHITESPACE_PATTERN = CssSyntaxPattern.WHITESPACE.pattern
 
     fun parseInset(insetStr: String?, parentWidth: Float, parentHeight: Float): InsetRect? {
         if (insetStr.isNullOrBlank()) return null
@@ -207,13 +187,6 @@ object GeometryParser {
         return z.toIntOrNull() ?: 0
     }
 
-    data class ParsedClipShape(
-        val shapeType: String, // POLYGON, PATH, OVAL
-        val polygonSides: Int = 0,
-        val pathData: String = "",
-        val normalizedVertices: List<Pair<Float, Float>> = emptyList()
-    )
-
     fun parseClipPath(clipPathStr: String?, width: Float = 100f, height: Float = 100f): ParsedClipShape? {
         if (clipPathStr.isNullOrBlank()) return null
         val clean = clipPathStr.trim()
@@ -249,9 +222,9 @@ object GeometryParser {
                     sb.append("Z")
 
                     val detectedShape = when (vertices.size) {
-                        6 -> "HEXAGON"
-                        8 -> "OCTAGON"
-                        else -> "POLYGON"
+                        6 -> LayerShapeType.HEXAGON.name
+                        8 -> LayerShapeType.OCTAGON.name
+                        else -> LayerShapeType.POLYGON.name
                     }
                     return ParsedClipShape(
                         shapeType = detectedShape,
@@ -272,7 +245,7 @@ object GeometryParser {
                 val unquoted = raw.trim('\'', '"')
                 if (unquoted.isNotBlank()) {
                     return ParsedClipShape(
-                        shapeType = "PATH",
+                        shapeType = LayerShapeType.PATH.name,
                         pathData = unquoted
                     )
                 }
@@ -282,7 +255,7 @@ object GeometryParser {
         // 3. circle(...) / ellipse(...)
         if (clean.contains("circle(") || clean.contains("ellipse(")) {
             return ParsedClipShape(
-                shapeType = "OVAL"
+                shapeType = LayerShapeType.OVAL.name
             )
         }
 
@@ -307,25 +280,7 @@ object GeometryParser {
         }
     }
 
-    fun parseFontSize(str: String?): Float? {
-        if (str == null) return null
-        val m = Pattern.compile("(\\d+(?:\\.\\d+)?)px").matcher(str)
-        return if (m.find()) m.group(1).toFloatOrNull() else null
-    }
+    fun parseFontSize(str: String?): Float? = TypographyParser.parseFontSize(str)
+    fun parseFontWeight(str: String?): Int = TypographyParser.parseFontWeight(str)
 
-    fun parseFontWeight(str: String?): Int {
-        if (str == null) return 700
-        return when (str.trim().lowercase()) {
-            "100" -> 100
-            "200" -> 200
-            "300", "light" -> 300
-            "400", "normal" -> 400
-            "500", "medium" -> 500
-            "600", "semibold" -> 600
-            "700", "bold" -> 700
-            "800", "extrabold" -> 800
-            "900", "black" -> 900
-            else -> 700
-        }
-    }
 }
