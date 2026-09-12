@@ -1238,4 +1238,52 @@ class NxprcEngineTest {
         assertEquals(750f, decoded.animations.joystickSpringTension)
         assertEquals(12f, decoded.animations.triggerMaxPullDepth)
     }
+
+    @Test
+    fun testUniversalAnimationTracksExtractionAndSerialization() {
+        val multiAnimHtml = """
+            <style>
+                @keyframes crazy-neon-glitch {
+                    0%   { transform: scale(1.0) rotate(0deg) translate(0px, 0px); opacity: 1.0; filter: hue-rotate(0deg); }
+                    25%  { transform: scale(1.2) rotate(15deg) translate(5px, 0px); opacity: 0.7; }
+                    50%  { transform: scale(0.9) rotate(-15deg) translate(-5px, 0px); opacity: 1.0; filter: hue-rotate(180deg); }
+                    75%  { transform: scale(1.05) rotate(5deg) translate(2px, 0px); opacity: 0.8; }
+                    100% { transform: scale(1.0) rotate(0deg) translate(0px, 0px); opacity: 1.0; filter: hue-rotate(360deg); }
+                }
+                .glitch-btn {
+                    animation: crazy-neon-glitch 2.5s ease-in-out infinite;
+                }
+            </style>
+            <button class="glitch-btn">X</button>
+        """.trimIndent()
+        val doc = NxprcPackager.compile(multiAnimHtml, id = "rc.glitch_btn")
+        assertTrue(doc.animations.tracks.isNotEmpty())
+
+        val scaleTrack = doc.animations.tracks.firstOrNull { it.property == AnimatedProperty.SCALE }
+        assertNotNull(scaleTrack)
+        assertEquals(5, scaleTrack.keyframes.size)
+        assertEquals(2500, scaleTrack.durationMs)
+        assertEquals(1.2f, scaleTrack.keyframes[1].value)
+
+        val rotTrack = doc.animations.tracks.firstOrNull { it.property == AnimatedProperty.ROTATION }
+        assertNotNull(rotTrack)
+        assertEquals(5, rotTrack.keyframes.size)
+        assertEquals(15.0f, rotTrack.keyframes[1].value)
+        assertEquals(-15.0f, rotTrack.keyframes[2].value)
+
+        val opTrack = doc.animations.tracks.firstOrNull { it.property == AnimatedProperty.OPACITY }
+        assertNotNull(opTrack)
+        assertEquals(5, opTrack.keyframes.size)
+        assertEquals(0.7f, opTrack.keyframes[1].value)
+
+        val hueTrack = doc.animations.tracks.firstOrNull { it.property == AnimatedProperty.HUE_ROTATE }
+        assertNotNull(hueTrack)
+
+        // Verify full binary serialization round-trip
+        val bytes = NxprcDocument.encodeToBytes(doc)
+        val decoded = NxprcDocument.decodeFromBytes(bytes).getOrThrow()
+        assertEquals(doc.animations.tracks.size, decoded.animations.tracks.size)
+        assertEquals(5, decoded.animations.tracks.first { it.property == AnimatedProperty.SCALE }.keyframes.size)
+        assertEquals(1.2f, decoded.animations.tracks.first { it.property == AnimatedProperty.SCALE }.keyframes[1].value)
+    }
 }

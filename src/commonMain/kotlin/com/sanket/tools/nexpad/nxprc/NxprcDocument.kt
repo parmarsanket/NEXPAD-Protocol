@@ -382,9 +382,39 @@ data class StrokeStyle(
     val isTopOnly: Boolean = false
 )
 
+/** Supported animatable property types in the universal timeline track engine. */
+@Serializable
+enum class AnimatedProperty {
+    SCALE,
+    SCALE_X,
+    SCALE_Y,
+    ROTATION,
+    OPACITY,
+    TRANSLATE_X,
+    TRANSLATE_Y,
+    HUE_ROTATE
+}
+
+/** Normalized keyframe point on an animation timeline track. */
+@Serializable
+data class AnimationKeyframePoint(
+    val fraction: Float, // 0.0f to 1.0f (representing 0% to 100%)
+    val value: Float     // scalar value at this keyframe point
+)
+
+/** Universal timeline track driving a single animatable property over time. */
+@Serializable
+data class AnimationTrack(
+    val property: AnimatedProperty,
+    val keyframes: List<AnimationKeyframePoint>,
+    val durationMs: Int = 2000,
+    val isInfinite: Boolean = true,
+    val easing: String = "LINEAR" // LINEAR, EASE, EASE_IN_OUT, FAST_OUT_SLOW_IN
+)
+
 @Serializable
 data class NxprcAnimations(
-    val idleType: String = "PULSE",       // PULSE, ROTATE, SHIMMER, RGB_CYCLE, NONE
+    val idleType: String = "PULSE",       // PULSE, ROTATE, SHIMMER, RGB_CYCLE, CUSTOM, NONE
     val idleDurationMs: Int = 2000,
     val pressFeedback: String = "SPRING", // SPRING, SHOCKWAVE, FLASH
     val springStiffness: Float = 600f,
@@ -394,5 +424,6 @@ data class NxprcAnimations(
     val enableGameRumble: Boolean = true,
     val rumbleIntensity: Float = 1.0f,
     val joystickSpringTension: Float = 750f,
-    val triggerMaxPullDepth: Float = 12f
+    val triggerMaxPullDepth: Float = 12f,
+    val tracks: List<AnimationTrack> = emptyList()
 )

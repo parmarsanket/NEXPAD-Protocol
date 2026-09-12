@@ -20,6 +20,7 @@ enum class IdleAnimationType(val id: String) {
     ROTATE("ROTATE"),
     SHIMMER("SHIMMER"),
     RGB_CYCLE("RGB_CYCLE"),
+    CUSTOM("CUSTOM"),
     NONE("NONE");
 }
 

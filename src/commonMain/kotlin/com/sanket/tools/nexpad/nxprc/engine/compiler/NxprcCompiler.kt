@@ -509,12 +509,22 @@ object NxprcCompiler {
         val isShimmer = AnimationParser.isShimmerAnimation(stylesheet, baseProps)
         val svgAnim = AnimationParser.detectSvgAnimation(primaryNode) ?: AnimationParser.detectSvgAnimation(parsed.root)
 
+        val cssTracks = AnimationParser.extractAnimationTracks(stylesheet, baseProps)
+        val svgTracks = AnimationParser.extractSvgAnimationTracks(primaryNode).ifEmpty {
+            AnimationParser.extractSvgAnimationTracks(parsed.root)
+        }
+        val allTracks = (cssTracks + svgTracks).distinctBy { it.property }
+
         val idleType = when {
+            allTracks.any { it.property == com.sanket.tools.nexpad.nxprc.AnimatedProperty.HUE_ROTATE } -> com.sanket.tools.nexpad.nxprc.IdleAnimationType.RGB_CYCLE.name
+            allTracks.any { it.property == com.sanket.tools.nexpad.nxprc.AnimatedProperty.ROTATION } -> com.sanket.tools.nexpad.nxprc.IdleAnimationType.ROTATE.name
+            allTracks.any { it.property == com.sanket.tools.nexpad.nxprc.AnimatedProperty.SCALE || it.property == com.sanket.tools.nexpad.nxprc.AnimatedProperty.OPACITY } -> com.sanket.tools.nexpad.nxprc.IdleAnimationType.PULSE.name
             svgAnim != null -> svgAnim.name
             isRgbCycle -> com.sanket.tools.nexpad.nxprc.IdleAnimationType.RGB_CYCLE.name
             isRotating -> com.sanket.tools.nexpad.nxprc.IdleAnimationType.ROTATE.name
             isPulsing -> com.sanket.tools.nexpad.nxprc.IdleAnimationType.PULSE.name
             isShimmer -> com.sanket.tools.nexpad.nxprc.IdleAnimationType.SHIMMER.name
+            allTracks.isNotEmpty() -> com.sanket.tools.nexpad.nxprc.IdleAnimationType.CUSTOM.name
             else -> com.sanket.tools.nexpad.nxprc.IdleAnimationType.NONE.name
         }
 
@@ -577,6 +587,7 @@ object NxprcCompiler {
             ),
             animations = NxprcAnimations(
                 idleType = idleType,
+                idleDurationMs = allTracks.firstOrNull()?.durationMs ?: 2000,
                 pressScale = pressScale,
                 pressOffsetY = pressOffsetY,
                 springStiffness = 850f,
@@ -584,7 +595,8 @@ object NxprcCompiler {
                 enableGameRumble = true,
                 rumbleIntensity = 1.0f,
                 joystickSpringTension = if (autoCategory.equals("JOYSTICK", ignoreCase = true)) 800f else 750f,
-                triggerMaxPullDepth = if (autoCategory.equals("TRIGGER", ignoreCase = true)) 16f else 12f
+                triggerMaxPullDepth = if (autoCategory.equals("TRIGGER", ignoreCase = true)) 16f else 12f,
+                tracks = allTracks
             )
         )
     }
