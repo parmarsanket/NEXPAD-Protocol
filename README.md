@@ -13,10 +13,6 @@ The universal, zero-allocation protocol and vector rendering foundation powering
      HISTORY.md         ROADMAP.md       ARCHITECTURE.md
      "Where we         "Where we're       "How it
       came from"          going"           works"
-          │
-          ▼
-      Git Tags
-   (v0.1 ──► v0.9)
 ```
 
 ---
@@ -25,7 +21,7 @@ The universal, zero-allocation protocol and vector rendering foundation powering
 
 Explore the complete design and evolution of the NEXPAD Protocol:
 
-- 📖 **[`HISTORY.md`](./HISTORY.md)** — **Where We Came From**: Chronological timeline of all releases from `v0.1` (KMP Genesis) to `v0.9` (Universal Timeline Track Engine).
+- 📖 **[`HISTORY.md`](./HISTORY.md)** — **Where We Came From**: Chronological timeline of all development branches and architectural breakthroughs.
 - 🗺️ **[`ROADMAP.md`](./ROADMAP.md)** — **Where We're Going**: Upcoming milestones, zero-copy packet pipelines, and community standards.
 - 🏛️ **[`ARCHITECTURE.md`](./ARCHITECTURE.md)** — **How It Works**: Deep technical blueprints, binary schemas, DOM compiler, and GPU matrix shaders.
 
