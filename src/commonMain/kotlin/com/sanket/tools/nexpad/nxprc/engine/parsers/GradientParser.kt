@@ -12,6 +12,10 @@ import java.util.regex.Pattern
  */
 object GradientParser {
 
+    private val RADIUS_AT_PATTERN = Pattern.compile("(?:circle\\s+|ellipse\\s+)?(\\d+(?:\\.\\d+)?)(px|%)?(?:\\s+(\\d+(?:\\.\\d+)?)(px|%)?)?\\s+at")
+    private val AT_POSITION_PATTERN = Pattern.compile("at\\s+([a-zA-Z0-9%.-]+)(?:\\s+([a-zA-Z0-9%.-]+))?")
+    private val FROM_ANGLE_PATTERN = Pattern.compile("from\\s+(-?\\d+(?:\\.\\d+)?)(deg|turn|rad)?")
+
     fun parseAll(
         bgStr: String?,
         positionStr: String? = null,
@@ -80,15 +84,13 @@ object GradientParser {
                 }
 
                 // Check explicit radius: e.g. "circle 45px at ..." or "40% at ..." or "ellipse 40px 20px at ..."
-                val radiusMatcher = Pattern.compile("(?:circle\\s+|ellipse\\s+)?(\\d+(?:\\.\\d+)?)(px|%)?(?:\\s+(\\d+(?:\\.\\d+)?)(px|%)?)?\\s+at").matcher(inner)
+                val radiusMatcher = RADIUS_AT_PATTERN.matcher(inner)
                 if (radiusMatcher.find()) {
                     val rVal1 = radiusMatcher.group(1).toFloatOrNull() ?: 50f
-                    val unit1 = radiusMatcher.group(2)
                     val rVal2 = radiusMatcher.group(3)?.toFloatOrNull()
-                    val unit2 = radiusMatcher.group(4)
-                    val r1 = if (unit1 == "%") (rVal1 / 100f) else (rVal1 / 100f)
+                    val r1 = (rVal1 / 100f).coerceAtLeast(0.01f)
                     if (rVal2 != null) {
-                        val r2 = if (unit2 == "%") (rVal2 / 100f) else (rVal2 / 100f)
+                        val r2 = (rVal2 / 100f).coerceAtLeast(0.01f)
                         radiusRatio = maxOf(r1, r2)
                         aspectRatio = if (r2 > 0.001f) r1 / r2 else 1.0f
                     } else {
@@ -98,7 +100,7 @@ object GradientParser {
                 }
 
                 // Check center position: "at X% Y%" or keyword positions
-                val atMatcher = Pattern.compile("at\\s+([a-zA-Z0-9%.-]+)(?:\\s+([a-zA-Z0-9%.-]+))?").matcher(inner)
+                val atMatcher = AT_POSITION_PATTERN.matcher(inner)
                 if (atMatcher.find()) {
                     val pos1 = atMatcher.group(1).lowercase()
                     val pos2 = atMatcher.group(2)?.lowercase()
@@ -171,7 +173,7 @@ object GradientParser {
                 var cy = 0.5f
                 var startAngle = 0f
 
-                val fromMatcher = Pattern.compile("from\\s+(-?\\d+(?:\\.\\d+)?)(deg|turn|rad)?").matcher(inner)
+                val fromMatcher = FROM_ANGLE_PATTERN.matcher(inner)
                 if (fromMatcher.find()) {
                     val num = fromMatcher.group(1).toFloatOrNull() ?: 0f
                     val unit = fromMatcher.group(2)?.lowercase() ?: "deg"
@@ -182,7 +184,7 @@ object GradientParser {
                     }
                 }
 
-                val atMatcher = Pattern.compile("at\\s+([a-zA-Z0-9%.-]+)(?:\\s+([a-zA-Z0-9%.-]+))?").matcher(inner)
+                val atMatcher = AT_POSITION_PATTERN.matcher(inner)
                 if (atMatcher.find()) {
                     val pos1 = atMatcher.group(1).lowercase()
                     val pos2 = atMatcher.group(2)?.lowercase()

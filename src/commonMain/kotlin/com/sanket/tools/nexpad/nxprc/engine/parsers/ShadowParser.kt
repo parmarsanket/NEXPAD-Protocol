@@ -99,8 +99,9 @@ object ShadowParser {
         val tokens = lower.split(TOKEN_DELIMITER_REGEX)
         for (tok in tokens) {
             if (tok.isNotBlank() && ColorParser.NAMED_COLORS.containsKey(tok)) {
-                val m = Pattern.compile("\\b" + Pattern.quote(tok) + "\\b", Pattern.CASE_INSENSITIVE).matcher(text)
-                if (m.find()) return m.group(0)
+                val idx = text.indexOf(tok, ignoreCase = true)
+                if (idx != -1) return text.substring(idx, idx + tok.length)
+                return tok
             }
         }
         return null

@@ -27,11 +27,17 @@ internal object ButtonNodeSelector {
      * 3. <body> child matching custom CSS stylesheet selectors.
      */
     fun findPrimaryButtonNode(root: DomNode, stylesheet: CssStylesheet): DomNode {
-        // 1. Explicit <button> tag
-        val buttons = root.findByTag("button")
-        buttons.firstOrNull {
+        // 0. Explicit data-primitive="box" container or gamepad metadata
+        root.findFirst {
+            it.attributes["data-primitive"]?.equals("box", ignoreCase = true) == true
+        }?.let { return it }
+
+        root.findFirst {
             it.attributes["data-control"] != null && it.attributes["data-category"] != null
         }?.let { return it }
+
+        // 1. Explicit <button> tag
+        val buttons = root.findByTag("button")
         buttons.firstOrNull {
             it.classNames.any { cls -> cls.equals("nexpad-btn", true) || cls.endsWith("-btn", true) }
         }?.let { return it }
@@ -85,7 +91,7 @@ internal object ButtonNodeSelector {
     fun collectTextLeaves(primaryNode: DomNode): List<DomNode> {
         val textNodes = mutableListOf<DomNode>()
         fun scan(node: DomNode) {
-            val elementChildren = node.children.filter { it.tag != "#text" }
+            val elementChildren = node.children
             if (elementChildren.isEmpty() && node.findFirstText() != null) {
                 textNodes.add(node)
             } else {

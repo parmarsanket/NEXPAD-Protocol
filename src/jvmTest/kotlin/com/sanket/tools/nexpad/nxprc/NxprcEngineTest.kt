@@ -6,9 +6,11 @@ import com.sanket.tools.nexpad.nxprc.engine.parsers.FilterParser
 import com.sanket.tools.nexpad.nxprc.engine.parsers.GradientParser
 import com.sanket.tools.nexpad.nxprc.engine.parsers.ShadowParser
 import com.sanket.tools.nexpad.nxprc.engine.dom.HtmlDomParser
+import com.sanket.tools.nexpad.nxprc.engine.parsers.ColorParser
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFails
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -1286,4 +1288,268 @@ class NxprcEngineTest {
         assertEquals(5, decoded.animations.tracks.first { it.property == AnimatedProperty.SCALE }.keyframes.size)
         assertEquals(1.2f, decoded.animations.tracks.first { it.property == AnimatedProperty.SCALE }.keyframes[1].value)
     }
+
+    @Test
+    fun testSafeHexColorParsingAndIsDark() {
+        // Safe parsing: invalid hex chars should return null, not throw NumberFormatException
+        assertNull(ColorParser.parse("#xyz"))
+        assertNull(ColorParser.parse("#12g"))
+        assertNull(ColorParser.parse("#blur"))
+        assertNull(ColorParser.parse("#12345"))
+        assertNull(ColorParser.parse("#"))
+
+        // Valid colors
+        assertEquals(0xFFFFFFFFL, ColorParser.parse("#fff"))
+        assertEquals(0xFFFF00AAL, ColorParser.parse("#ff00aa"))
+        // 8-digit #RRGGBBAA -> 0xAARRGGBB
+        assertEquals(0x44112233L, ColorParser.parse("#11223344"))
+
+        // isDark checks
+        assertFalse(ColorParser.isDark(0x00000000L), "Transparent color must not be dark")
+        assertFalse(ColorParser.isDark(0x05000000L), "Near-transparent color must not be dark")
+        assertTrue(ColorParser.isDark(0xFF000000L), "Black color must be dark")
+        assertFalse(ColorParser.isDark(0xFFFFFFFFL), "White color must not be dark")
+    }
+
+    @Test
+    fun testAnimationScaleYAndTwoArgScale() {
+        val cssScaleY = """
+            <style>
+                @keyframes stretch-y {
+                    0% { transform: scaleY(1.0); }
+                    50% { transform: scaleY(1.5); }
+                    100% { transform: scaleY(1.0); }
+                }
+                .stretch-btn { animation: stretch-y 1s infinite; }
+            </style>
+            <button class="stretch-btn">Y</button>
+        """.trimIndent()
+        val docY = NxprcPackager.compile(cssScaleY, id = "rc.stretch_y")
+        val scaleYTrack = docY.animations.tracks.firstOrNull { it.property == AnimatedProperty.SCALE_Y }
+        assertNotNull(scaleYTrack, "SCALE_Y track should be present")
+        assertEquals(3, scaleYTrack.keyframes.size)
+        assertEquals(1.5f, scaleYTrack.keyframes[1].value)
+
+        val cssScale2D = """
+            <style>
+                @keyframes scale-2d {
+                    0% { transform: scale(1.0, 1.0); }
+                    50% { transform: scale(1.2, 0.8); }
+                    100% { transform: scale(1.0, 1.0); }
+                }
+                .two-d-btn { animation: scale-2d 1s infinite; }
+            </style>
+            <button class="two-d-btn">2D</button>
+        """.trimIndent()
+        val doc2D = NxprcPackager.compile(cssScale2D, id = "rc.scale_2d")
+        val sxTrack = doc2D.animations.tracks.firstOrNull { it.property == AnimatedProperty.SCALE_X }
+        val syTrack = doc2D.animations.tracks.firstOrNull { it.property == AnimatedProperty.SCALE_Y }
+        assertNotNull(sxTrack, "SCALE_X track should be present")
+        assertNotNull(syTrack, "SCALE_Y track should be present")
+        assertEquals(1.2f, sxTrack.keyframes[1].value)
+        assertEquals(0.8f, syTrack.keyframes[1].value)
+    }
+
+    @Test
+    fun testMultiPercentageKeyframeParsing() {
+        val css = """
+            @keyframes multi-step {
+                0%, 100% { opacity: 0; }
+                50% { opacity: 1; }
+            }
+        """.trimIndent()
+        val steps = com.sanket.tools.nexpad.nxprc.engine.css.CssTokenizer.parse(css).keyframes["multi-step"]?.steps
+        assertNotNull(steps)
+        assertEquals(3, steps.size, "Should have 3 steps: 0%, 100%, and 50%")
+        val percentages = steps.map { it.percentage }.toSet()
+        assertTrue(percentages.contains(0.0f))
+        assertTrue(percentages.contains(1.0f))
+        assertTrue(percentages.contains(0.5f))
+    }
+
+    @Test
+    fun testPseudoElementWithPseudoClassCoexistence() {
+        val selector = com.sanket.tools.nexpad.nxprc.engine.css.CssSelectorParser.parse(".btn-cyber:active::before")
+        assertEquals("btn-cyber", selector.className)
+        assertEquals("before", selector.pseudoElement)
+        assertEquals("active", selector.pseudoClass)
+    }
+
+    @Test
+    fun testBinaryCompactionAndFidelity() {
+        val html = """
+            <style>
+                .glass-btn {
+                    width: 100px;
+                    height: 100px;
+                    border-radius: 20px;
+                    background: linear-gradient(180deg, #00f0ff, #0a192f);
+                    border: 2px solid #00f0ff;
+                    box-shadow: 0 4px 12px rgba(0, 240, 255, 0.4);
+                }
+                .glass-btn::before {
+                    content: "";
+                    position: absolute;
+                    inset: 4px;
+                    border-radius: 16px;
+                    background: rgba(255, 255, 255, 0.1);
+                }
+            </style>
+            <button class="glass-btn">A</button>
+        """.trimIndent()
+        val doc = NxprcPackager.compile(html, id = "rc.glass_btn", name = "Glass Button")
+        val bytes = NxprcDocument.encodeToBytes(doc)
+
+        // Verify compact size: with encodeDefaults = false, should be well under 4 KB
+        assertTrue(bytes.size < 4096, "Encoded document should be compact, actual: ${bytes.size} bytes")
+
+        // Verify complete deserialization fidelity
+        val decoded = NxprcDocument.decodeFromBytes(bytes).getOrThrow()
+        assertEquals(doc.manifest.id, decoded.manifest.id)
+        assertEquals(doc.manifest.name, decoded.manifest.name)
+        assertEquals(doc.canvas.layers.size, decoded.canvas.layers.size)
+
+        // Verify layers retain all properties correctly through default-omitted deserialization
+        val originalBoxes = doc.canvas.layers.filterIsInstance<CanvasLayer.BoxLayer>()
+        val decodedBoxes = decoded.canvas.layers.filterIsInstance<CanvasLayer.BoxLayer>()
+        assertEquals(originalBoxes.size, decodedBoxes.size)
+        for (i in originalBoxes.indices) {
+            assertEquals(originalBoxes[i].shapeType, decodedBoxes[i].shapeType)
+            assertEquals(originalBoxes[i].widthRatio, decodedBoxes[i].widthRatio)
+            assertEquals(originalBoxes[i].heightRatio, decodedBoxes[i].heightRatio)
+            assertEquals(originalBoxes[i].cornerRadiusTopLeft, decodedBoxes[i].cornerRadiusTopLeft)
+        }
+    }
+
+    @Test
+    fun testSvgFilterNodeParsingAndUrlReference() {
+        val html = """
+            <svg style="display:none;">
+                <filter id="cyber-glow">
+                    <feGaussianBlur stdDeviation="6.5"/>
+                    <feColorMatrix type="hueRotate" values="90"/>
+                    <feDropShadow dx="2" dy="4" stdDeviation="5" flood-color="#00f0ff" flood-opacity="0.75"/>
+                </filter>
+            </svg>
+            <style>
+                .neon-btn {
+                    width: 80px;
+                    height: 80px;
+                    background: #111;
+                    filter: url(#cyber-glow);
+                }
+            </style>
+            <button class="neon-btn" data-primitive="box">X</button>
+        """.trimIndent()
+
+        val doc = NxprcPackager.compile(html, id = "rc.neon_filter", name = "Neon Filter")
+        val box = doc.canvas.layers.filterIsInstance<CanvasLayer.BoxLayer>().first()
+        assertEquals(6.5f, box.filter.blurRadius)
+        assertEquals(90f, box.filter.hueRotateDegrees)
+        // Verify drop shadow extracted from SVG filter node
+        assertTrue(box.boxShadows.isNotEmpty(), "Box shadows should contain SVG drop shadow")
+        val ds = box.boxShadows.first()
+        assertEquals(2f, ds.offsetX)
+        assertEquals(4f, ds.offsetY)
+        assertEquals(5f, ds.blurRadius)
+    }
+
+    @Test
+    fun testFlexWrapMultiLineLayout() {
+        val html = """
+            <style>
+                .wrap-container {
+                    display: flex;
+                    flex-direction: row;
+                    flex-wrap: wrap;
+                    width: 100px;
+                    height: 100px;
+                }
+                .cell {
+                    width: 48px;
+                    height: 40px;
+                    background: #222;
+                }
+            </style>
+            <div class="wrap-container" data-primitive="box">
+                <div class="cell" id="c1">1</div>
+                <div class="cell" id="c2">2</div>
+                <div class="cell" id="c3">3</div>
+            </div>
+        """.trimIndent()
+
+        val doc = NxprcPackager.compile(html, id = "rc.wrap_test", name = "Wrap Test")
+        val boxes = doc.canvas.layers.filterIsInstance<CanvasLayer.BoxLayer>()
+        // Container + 3 cells = 4 boxes
+        assertTrue(boxes.size >= 4, "Should compile container and wrapped cells")
+        val c1 = boxes[1]
+        val c2 = boxes[2]
+        val c3 = boxes[3]
+
+        // c1 and c2 are on row 1 (same offsetYRatio)
+        assertEquals(c1.offsetYRatio, c2.offsetYRatio, 0.01f)
+        // c3 wrapped onto row 2 (offsetYRatio should be greater than row 1)
+        assertTrue(c3.offsetYRatio > c1.offsetYRatio, "c3 should wrap to next line: c3.y=${c3.offsetYRatio}, c1.y=${c1.offsetYRatio}")
+        // c3 starts near the beginning of row 2
+        assertEquals(c1.offsetXRatio, c3.offsetXRatio, 0.05f)
+    }
+
+    @Test
+    fun testTextLineBreakerAndMultiLineText() {
+        val html = """
+            <style>
+                .multiline-btn {
+                    width: 100px;
+                    height: 60px;
+                    font-size: 14px;
+                    white-space: pre-line;
+                }
+            </style>
+            <button class="multiline-btn">LINE ONE
+LINE TWO</button>
+        """.trimIndent()
+
+        val doc = NxprcPackager.compile(html, id = "rc.multiline", name = "Multiline Text")
+        val textLayers = doc.canvas.layers.filterIsInstance<CanvasLayer.TextLayer>()
+        assertTrue(textLayers.size >= 2, "Should produce at least 2 text layers for multiline text, got ${textLayers.size}")
+        assertEquals("LINE ONE", textLayers[0].text)
+        assertEquals("LINE TWO", textLayers[1].text)
+        // Verify line 2 is positioned below line 1
+        assertTrue(textLayers[1].offsetYRatio > textLayers[0].offsetYRatio, "Line 2 should be below Line 1")
+    }
+
+    @Test
+    fun testSpringPhysicsParsingAndBinarySerialization() {
+        val html = """
+            <style>
+                :root {
+                    --spring-damping: 0.68;
+                    --spring-stiffness: 450;
+                    --press-scale: 0.89;
+                }
+                .spring-btn {
+                    width: 80px;
+                    height: 80px;
+                    background: #222;
+                }
+            </style>
+            <button class="spring-btn">GO</button>
+        """.trimIndent()
+
+        val doc = NxprcPackager.compile(html, id = "rc.spring_btn", name = "Spring Button")
+        val spring = doc.manifest.springPhysics
+        assertTrue(spring.enabled, "Spring physics should be enabled")
+        assertEquals(0.68f, spring.dampingRatio, 0.01f)
+        assertEquals(450f, spring.stiffness, 0.1f)
+        assertEquals(0.89f, spring.pressedScale, 0.01f)
+
+        // Verify roundtrip through binary encoder and decoder
+        val bytes = NxprcDocument.encodeToBytes(doc)
+        val decoded = NxprcDocument.decodeFromBytes(bytes).getOrThrow()
+        assertTrue(decoded.manifest.springPhysics.enabled)
+        assertEquals(0.68f, decoded.manifest.springPhysics.dampingRatio, 0.01f)
+        assertEquals(450f, decoded.manifest.springPhysics.stiffness, 0.1f)
+        assertEquals(0.89f, decoded.manifest.springPhysics.pressedScale, 0.01f)
+    }
 }
+

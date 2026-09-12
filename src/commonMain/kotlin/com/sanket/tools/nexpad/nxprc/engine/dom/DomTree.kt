@@ -20,6 +20,15 @@ class DomNode(
         private fun nextNodeIndex(): Int = counter.incrementAndGet()
     }
 
+    fun findFirst(predicate: (DomNode) -> Boolean): DomNode? {
+        if (predicate(this)) return this
+        for (child in children) {
+            val res = child.findFirst(predicate)
+            if (res != null) return res
+        }
+        return null
+    }
+
     fun findByTag(tagName: String): List<DomNode> {
         val results = mutableListOf<DomNode>()
         fun recurse(node: DomNode) {

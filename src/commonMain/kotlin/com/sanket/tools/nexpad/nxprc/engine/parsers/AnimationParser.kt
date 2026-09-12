@@ -30,6 +30,7 @@ object AnimationParser {
     private val FUNC_PATTERN = CssSyntaxPattern.FUNCTION_CALL.pattern
     private val DELIMITER_PATTERN = ColorPattern.DELIMITER.pattern
     private val NUMBER_PATTERN = CssSyntaxPattern.NUMBER.pattern
+    private val WHITESPACE_PATTERN = Pattern.compile("\\s+")
 
     fun parseTransforms(
         transformStr: String?,
@@ -296,6 +297,8 @@ object AnimationParser {
         val easing = extractEasing(animStr, props["animation-timing-function"])
 
         val scaleKeyframes = mutableListOf<AnimationKeyframePoint>()
+        val scaleXKeyframes = mutableListOf<AnimationKeyframePoint>()
+        val scaleYKeyframes = mutableListOf<AnimationKeyframePoint>()
         val rotationKeyframes = mutableListOf<AnimationKeyframePoint>()
         val opacityKeyframes = mutableListOf<AnimationKeyframePoint>()
         val translateXKeyframes = mutableListOf<AnimationKeyframePoint>()
@@ -316,15 +319,26 @@ object AnimationParser {
                     val args = rawArgs.split(DELIMITER_PATTERN).map { it.trim() }.filter { it.isNotEmpty() }
                     when (func) {
                         "scale" -> {
-                            if (args.isNotEmpty()) {
+                            if (args.size == 1) {
                                 val s = parseNumber(args[0]) ?: 1.0f
                                 scaleKeyframes.add(AnimationKeyframePoint(frac, s))
+                            } else if (args.size > 1) {
+                                val sx = parseNumber(args[0]) ?: 1.0f
+                                val sy = parseNumber(args[1]) ?: 1.0f
+                                scaleXKeyframes.add(AnimationKeyframePoint(frac, sx))
+                                scaleYKeyframes.add(AnimationKeyframePoint(frac, sy))
                             }
                         }
                         "scalex" -> {
                             if (args.isNotEmpty()) {
                                 val s = parseNumber(args[0]) ?: 1.0f
-                                scaleKeyframes.add(AnimationKeyframePoint(frac, s))
+                                scaleXKeyframes.add(AnimationKeyframePoint(frac, s))
+                            }
+                        }
+                        "scaley" -> {
+                            if (args.isNotEmpty()) {
+                                val s = parseNumber(args[0]) ?: 1.0f
+                                scaleYKeyframes.add(AnimationKeyframePoint(frac, s))
                             }
                         }
                         "rotate", "rotatez" -> {
@@ -371,12 +385,10 @@ object AnimationParser {
             // 3. Filter hue-rotate declaration
             val filterStr = step.declarations["filter"]
             if (!filterStr.isNullOrBlank()) {
-                val matcher = FUNC_PATTERN.matcher(filterStr)
-                while (matcher.find()) {
-                    val func = matcher.group(1).lowercase()
-                    val rawArgs = matcher.group(2).trim()
-                    if (func == "hue-rotate") {
-                        val angle = parseAngle(rawArgs)
+                val filterMatcher = FUNC_PATTERN.matcher(filterStr)
+                while (filterMatcher.find()) {
+                    if (filterMatcher.group(1).equals("hue-rotate", ignoreCase = true)) {
+                        val angle = parseAngle(filterMatcher.group(2).trim())
                         hueRotateKeyframes.add(AnimationKeyframePoint(frac, angle))
                     }
                 }
@@ -387,6 +399,14 @@ object AnimationParser {
         if (scaleKeyframes.isNotEmpty()) {
             normalizeKeyframes(scaleKeyframes, 1.0f)
             tracks.add(AnimationTrack(AnimatedProperty.SCALE, scaleKeyframes, durationMs, isInfinite, easing))
+        }
+        if (scaleXKeyframes.isNotEmpty()) {
+            normalizeKeyframes(scaleXKeyframes, 1.0f)
+            tracks.add(AnimationTrack(AnimatedProperty.SCALE_X, scaleXKeyframes, durationMs, isInfinite, easing))
+        }
+        if (scaleYKeyframes.isNotEmpty()) {
+            normalizeKeyframes(scaleYKeyframes, 1.0f)
+            tracks.add(AnimationTrack(AnimatedProperty.SCALE_Y, scaleYKeyframes, durationMs, isInfinite, easing))
         }
         if (rotationKeyframes.isNotEmpty()) {
             normalizeKeyframes(rotationKeyframes, 0.0f)
@@ -440,8 +460,9 @@ object AnimationParser {
 
                 val vals = extractValues()
                 if (vals.size >= 2) {
+                    val divisor = (vals.size - 1).coerceAtLeast(1).toFloat()
                     val keypoints = vals.mapIndexed { idx, v ->
-                        AnimationKeyframePoint(idx.toFloat() / (vals.size - 1).toFloat(), v)
+                        AnimationKeyframePoint(idx.toFloat() / divisor, v)
                     }
                     when (type) {
                         "rotate" -> tracks.add(AnimationTrack(AnimatedProperty.ROTATION, keypoints, durMs, isInfinite))
@@ -467,8 +488,9 @@ object AnimationParser {
                 if (attrName == "opacity") {
                     val vals = extractValues()
                     if (vals.size >= 2) {
+                        val divisor = (vals.size - 1).coerceAtLeast(1).toFloat()
                         val keypoints = vals.mapIndexed { idx, v ->
-                            AnimationKeyframePoint(idx.toFloat() / (vals.size - 1).toFloat(), v)
+                            AnimationKeyframePoint(idx.toFloat() / divisor, v)
                         }
                         tracks.add(AnimationTrack(AnimatedProperty.OPACITY, keypoints, durMs, isInfinite))
                     }
@@ -489,6 +511,19 @@ object AnimationParser {
     private fun normalizeKeyframes(points: MutableList<AnimationKeyframePoint>, defaultValue: Float) {
         if (points.isEmpty()) return
         points.sortBy { it.fraction }
+
+        // Deduplicate fractions that are identical or closer than 0.0001f to prevent Float.NaN division by zero
+        val deduplicated = mutableListOf<AnimationKeyframePoint>()
+        for (pt in points) {
+            if (deduplicated.isEmpty() || kotlin.math.abs(pt.fraction - deduplicated.last().fraction) >= 0.0001f) {
+                deduplicated.add(pt)
+            } else {
+                deduplicated[deduplicated.lastIndex] = pt
+            }
+        }
+        points.clear()
+        points.addAll(deduplicated)
+
         if (points.first().fraction > 0.001f) {
             points.add(0, AnimationKeyframePoint(0.0f, points.first().value))
         }
@@ -499,7 +534,7 @@ object AnimationParser {
 
     private fun extractDurationMs(animStr: String, explicitDuration: String?): Int {
         val candidate = explicitDuration?.trim() ?: run {
-            val tokens = animStr.split(Pattern.compile("\\s+"))
+            val tokens = animStr.split(WHITESPACE_PATTERN)
             tokens.firstOrNull { it.endsWith("s", ignoreCase = true) || it.endsWith("ms", ignoreCase = true) }
         } ?: "2s"
         return parseTimeMs(candidate)
@@ -515,9 +550,15 @@ object AnimationParser {
     }
 
     private fun extractEasing(animStr: String, explicitTiming: String?): String {
-        val candidate = explicitTiming?.trim()?.uppercase() ?: run {
+        val candidate = explicitTiming?.trim() ?: run {
             val lower = animStr.lowercase()
             when {
+                lower.contains("cubic-bezier") -> {
+                    val start = animStr.indexOf("cubic-bezier", ignoreCase = true)
+                    val end = animStr.indexOf(')', start)
+                    if (start != -1 && end != -1) animStr.substring(start, end + 1).trim()
+                    else "CUBIC_BEZIER"
+                }
                 lower.contains("ease-in-out") -> "EASE_IN_OUT"
                 lower.contains("ease-in") -> "EASE_IN"
                 lower.contains("ease-out") -> "EASE_OUT"
@@ -531,7 +572,7 @@ object AnimationParser {
 
     private fun extractAnimationName(animStr: String): String {
         if (animStr.isBlank()) return ""
-        val tokens = animStr.trim().split(Pattern.compile("\\s+")).filter { it.isNotBlank() }
+        val tokens = animStr.trim().split(WHITESPACE_PATTERN).filter { it.isNotBlank() }
         val reservedKeywords = setOf(
             "infinite", "linear", "ease", "ease-in", "ease-out", "ease-in-out",
             "normal", "reverse", "alternate", "alternate-reverse",

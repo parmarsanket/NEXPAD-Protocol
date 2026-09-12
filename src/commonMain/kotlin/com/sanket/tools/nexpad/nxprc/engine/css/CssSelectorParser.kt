@@ -19,16 +19,27 @@ object CssSelectorParser {
         var pseudoEl: String? = null
         var pseudoCl: String? = null
 
+        // 1. Extract pseudo-element (::before, ::after or double-colon pseudo-elements)
         if (s.contains("::")) {
             val parts = s.split("::", limit = 2)
             s = parts[0]
-            pseudoEl = parts[1].trim().lowercase()
-        } else if (s.contains(":")) {
+            val rest = parts[1].trim().lowercase()
+            if (rest.contains(":")) {
+                val subParts = rest.split(":", limit = 2)
+                pseudoEl = subParts[0]
+                if (pseudoCl == null) pseudoCl = subParts[1]
+            } else {
+                pseudoEl = rest
+            }
+        }
+
+        // 2. Extract pseudo-class (:active, :hover, etc. or legacy single-colon :before, :after)
+        if (s.contains(":")) {
             val parts = s.split(":", limit = 2)
             s = parts[0]
             val pseudo = parts[1].trim().lowercase()
             if (pseudo == "before" || pseudo == "after") {
-                pseudoEl = pseudo
+                if (pseudoEl == null) pseudoEl = pseudo
             } else {
                 pseudoCl = pseudo
             }

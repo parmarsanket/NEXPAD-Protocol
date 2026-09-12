@@ -76,7 +76,7 @@ internal object FlexLayoutEngine {
         parentHeight: Float
     ): Map<DomNode, ComputedBoxBounds> {
         val result = mutableMapOf<DomNode, ComputedBoxBounds>()
-        val children = parentNode.children.filter { it.tag != "#text" }
+        val children = parentNode.children
         if (parentStyle["display"]?.trim()?.lowercase() != "flex") {
             for (child in children) {
                 val childStyle = CssCascadeResolver.computeStyle(child, stylesheet).base
@@ -137,56 +137,152 @@ internal object FlexLayoutEngine {
 
         if (inFlowList.isEmpty()) return result
 
+        val flexWrap = parentStyle["flex-wrap"]?.trim()?.lowercase() ?: "nowrap"
+        val isWrap = flexWrap == "wrap" || flexWrap == "wrap-reverse"
+        val isWrapReverse = flexWrap == "wrap-reverse"
+        val alignContent = parentStyle["align-content"]?.trim()?.lowercase() ?: "flex-start"
+
         val orderedList = if (isReverse) inFlowList.reversed() else inFlowList
-        val totalMain = orderedList.sumOf { (if (isColumn) it.second.height else it.second.width).toDouble() }.toFloat() +
-                ((orderedList.size - 1).coerceAtLeast(0) * gap)
 
-        val availMain = if (isColumn) {
-            (parentHeight - pTop - pBottom - totalMain).coerceAtLeast(0f)
-        } else {
-            (parentWidth - pLeft - pRight - totalMain).coerceAtLeast(0f)
-        }
+        if (!isWrap) {
+            val totalMain = orderedList.sumOf { (if (isColumn) it.second.height else it.second.width).toDouble() }.toFloat() +
+                    ((orderedList.size - 1).coerceAtLeast(0) * gap)
 
-        var currentMain = when (justify) {
-            "center" -> (if (isColumn) pTop else pLeft) + availMain / 2f
-            "flex-end" -> (if (isColumn) parentHeight - pBottom - totalMain else parentWidth - pRight - totalMain)
-            "space-around" -> (if (isColumn) pTop else pLeft) + (availMain / (orderedList.size * 2f))
-            "space-evenly" -> (if (isColumn) pTop else pLeft) + (availMain / (orderedList.size + 1f))
-            else -> if (isColumn) pTop else pLeft
-        }
-
-        val extraSpacing = when (justify) {
-            "space-between" -> if (orderedList.size > 1) availMain / (orderedList.size - 1) else 0f
-            "space-around" -> availMain / orderedList.size
-            "space-evenly" -> availMain / (orderedList.size + 1f)
-            else -> 0f
-        }
-
-        for ((child, bounds) in orderedList) {
-            val childW = bounds.width
-            val childH = bounds.height
-
-            val (cLeft, cTop) = if (isColumn) {
-                val top = currentMain
-                val left = when (align) {
-                    "center" -> pLeft + (parentWidth - pLeft - pRight - childW).coerceAtLeast(0f) / 2f
-                    "flex-end" -> parentWidth - pRight - childW
-                    else -> pLeft
-                }
-                currentMain += childH + (if (justify.startsWith("space-")) extraSpacing else gap)
-                left to top
+            val availMain = if (isColumn) {
+                (parentHeight - pTop - pBottom - totalMain).coerceAtLeast(0f)
             } else {
-                val left = currentMain
-                val top = when (align) {
-                    "center" -> pTop + (parentHeight - pTop - pBottom - childH).coerceAtLeast(0f) / 2f
-                    "flex-end" -> parentHeight - pBottom - childH
-                    else -> pTop
-                }
-                currentMain += childW + (if (justify.startsWith("space-")) extraSpacing else gap)
-                left to top
+                (parentWidth - pLeft - pRight - totalMain).coerceAtLeast(0f)
             }
 
-            result[child] = ComputedBoxBounds(cLeft, cTop, childW, childH)
+            var currentMain = when (justify) {
+                "center" -> (if (isColumn) pTop else pLeft) + availMain / 2f
+                "flex-end" -> (if (isColumn) parentHeight - pBottom - totalMain else parentWidth - pRight - totalMain)
+                "space-around" -> (if (isColumn) pTop else pLeft) + (availMain / (orderedList.size * 2f))
+                "space-evenly" -> (if (isColumn) pTop else pLeft) + (availMain / (orderedList.size + 1f))
+                else -> if (isColumn) pTop else pLeft
+            }
+
+            val extraSpacing = when (justify) {
+                "space-between" -> if (orderedList.size > 1) availMain / (orderedList.size - 1) else 0f
+                "space-around" -> availMain / orderedList.size
+                "space-evenly" -> availMain / (orderedList.size + 1f)
+                else -> 0f
+            }
+
+            for ((child, bounds) in orderedList) {
+                val childW = bounds.width
+                val childH = bounds.height
+
+                val (cLeft, cTop) = if (isColumn) {
+                    val top = currentMain
+                    val left = when (align) {
+                        "center" -> pLeft + (parentWidth - pLeft - pRight - childW).coerceAtLeast(0f) / 2f
+                        "flex-end" -> parentWidth - pRight - childW
+                        else -> pLeft
+                    }
+                    currentMain += childH + (if (justify.startsWith("space-")) extraSpacing else gap)
+                    left to top
+                } else {
+                    val left = currentMain
+                    val top = when (align) {
+                        "center" -> pTop + (parentHeight - pTop - pBottom - childH).coerceAtLeast(0f) / 2f
+                        "flex-end" -> parentHeight - pBottom - childH
+                        else -> pTop
+                    }
+                    currentMain += childW + (if (justify.startsWith("space-")) extraSpacing else gap)
+                    left to top
+                }
+
+                result[child] = ComputedBoxBounds(cLeft, cTop, childW, childH)
+            }
+        } else {
+            val maxMainSize = if (isColumn) (parentHeight - pTop - pBottom) else (parentWidth - pLeft - pRight)
+            val lines = mutableListOf<MutableList<Pair<DomNode, ComputedBoxBounds>>>()
+            var curLine = mutableListOf<Pair<DomNode, ComputedBoxBounds>>()
+            var curLineMain = 0f
+
+            for (item in orderedList) {
+                val itemMain = if (isColumn) item.second.height else item.second.width
+                if (curLine.isNotEmpty() && (curLineMain + gap + itemMain > maxMainSize)) {
+                    lines.add(curLine)
+                    curLine = mutableListOf(item)
+                    curLineMain = itemMain
+                } else {
+                    curLineMain += if (curLine.isEmpty()) itemMain else (gap + itemMain)
+                    curLine.add(item)
+                }
+            }
+            if (curLine.isNotEmpty()) {
+                lines.add(curLine)
+            }
+
+            val finalLines = if (isWrapReverse) lines.reversed() else lines
+            val totalCross = finalLines.sumOf { line ->
+                line.maxOfOrNull { (if (isColumn) it.second.width else it.second.height).toDouble() } ?: 0.0
+            }.toFloat() + ((finalLines.size - 1).coerceAtLeast(0) * gap)
+
+            val availCross = if (isColumn) {
+                (parentWidth - pLeft - pRight - totalCross).coerceAtLeast(0f)
+            } else {
+                (parentHeight - pTop - pBottom - totalCross).coerceAtLeast(0f)
+            }
+
+            var currentCross = when (alignContent) {
+                "center" -> (if (isColumn) pLeft else pTop) + availCross / 2f
+                "flex-end" -> (if (isColumn) parentWidth - pRight - totalCross else parentHeight - pBottom - totalCross)
+                else -> if (isColumn) pLeft else pTop
+            }
+
+            for (line in finalLines) {
+                val lineCrossSize = line.maxOfOrNull { if (isColumn) it.second.width else it.second.height } ?: 0f
+                val lineTotalMain = line.sumOf { (if (isColumn) it.second.height else it.second.width).toDouble() }.toFloat() +
+                        ((line.size - 1).coerceAtLeast(0) * gap)
+                val lineAvailMain = (maxMainSize - lineTotalMain).coerceAtLeast(0f)
+
+                var currentMain = when (justify) {
+                    "center" -> (if (isColumn) pTop else pLeft) + lineAvailMain / 2f
+                    "flex-end" -> (if (isColumn) parentHeight - pBottom - lineTotalMain else parentWidth - pRight - lineTotalMain)
+                    "space-around" -> (if (isColumn) pTop else pLeft) + (lineAvailMain / (line.size * 2f))
+                    "space-evenly" -> (if (isColumn) pTop else pLeft) + (lineAvailMain / (line.size + 1f))
+                    else -> if (isColumn) pTop else pLeft
+                }
+
+                val extraSpacing = when (justify) {
+                    "space-between" -> if (line.size > 1) lineAvailMain / (line.size - 1) else 0f
+                    "space-around" -> lineAvailMain / line.size
+                    "space-evenly" -> lineAvailMain / (line.size + 1f)
+                    else -> 0f
+                }
+
+                for ((child, bounds) in line) {
+                    val childW = bounds.width
+                    val childH = bounds.height
+
+                    val (cLeft, cTop) = if (isColumn) {
+                        val top = currentMain
+                        val left = when (align) {
+                            "center" -> currentCross + (lineCrossSize - childW) / 2f
+                            "flex-end" -> currentCross + lineCrossSize - childW
+                            else -> currentCross
+                        }
+                        currentMain += childH + (if (justify.startsWith("space-")) extraSpacing else gap)
+                        left to top
+                    } else {
+                        val left = currentMain
+                        val top = when (align) {
+                            "center" -> currentCross + (lineCrossSize - childH) / 2f
+                            "flex-end" -> currentCross + lineCrossSize - childH
+                            else -> currentCross
+                        }
+                        currentMain += childW + (if (justify.startsWith("space-")) extraSpacing else gap)
+                        left to top
+                    }
+
+                    result[child] = ComputedBoxBounds(cLeft, cTop, childW, childH)
+                }
+
+                currentCross += lineCrossSize + gap
+            }
         }
 
         return result

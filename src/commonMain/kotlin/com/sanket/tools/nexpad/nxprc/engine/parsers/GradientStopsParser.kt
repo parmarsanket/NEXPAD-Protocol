@@ -8,6 +8,8 @@ import java.util.regex.Pattern
  */
 internal object GradientStopsParser {
 
+    private val NON_DIGIT_DOT_PATTERN = Pattern.compile("[^0-9.]+")
+
     /**
      * Splits comma-separated CSS values while respecting nested parentheses and quoted substrings.
      */
@@ -72,7 +74,7 @@ internal object GradientStopsParser {
             clean.contains("cover") -> 1.4f
             clean.contains("contain") -> 0.9f
             clean.endsWith("%") -> {
-                val num = clean.split(Pattern.compile("[^0-9.]+")).firstOrNull { it.isNotBlank() }?.toFloatOrNull() ?: 100f
+                val num = clean.split(NON_DIGIT_DOT_PATTERN).firstOrNull { it.isNotBlank() }?.toFloatOrNull() ?: 100f
                 (num / 100f).coerceIn(0.1f, 3.0f)
             }
             else -> 1.0f

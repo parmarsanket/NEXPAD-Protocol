@@ -25,6 +25,14 @@ data class NxprcDocument(
 }
 
 @Serializable
+data class SpringPhysicsDef(
+    val dampingRatio: Float = 0.75f,
+    val stiffness: Float = 400f,
+    val pressedScale: Float = 0.92f,
+    val enabled: Boolean = true
+)
+
+@Serializable
 data class NxprcManifest(
     val id: String,                    // e.g. "rc.cyber_hex_a" - must start with "rc."
     val name: String,
@@ -34,7 +42,8 @@ data class NxprcManifest(
     val defaultControl: String = "A",  // A, B, X, Y, LT, RT, LB, RB, LS, RS, UP, DOWN, etc.
     val widthDp: Int = 76,
     val heightDp: Int = 76,
-    val description: String = ""
+    val description: String = "",
+    val springPhysics: SpringPhysicsDef = SpringPhysicsDef()
 )
 
 @Serializable
@@ -94,6 +103,7 @@ data class FilterDef(
     val blurRadius: Float = 0f,
     val brightness: Float = 1f,
     val saturation: Float = 1f,
+    val hueRotateDegrees: Float = 0f,
     val renderEffect: RenderEffectDef = RenderEffectDef()
 )
 
@@ -332,7 +342,10 @@ sealed class CanvasLayer {
         val textColor: Long = 0xFFF5F5F5L,
         val offsetXRatio: Float = 0f,
         val offsetYRatio: Float = 0f,
-        val textShadows: List<TextShadowDef> = emptyList()
+        val textShadows: List<TextShadowDef> = emptyList(),
+        val maxLines: Int = 1,
+        val lineHeightSp: Float = 0f,
+        val textAlign: String = "CENTER"
     ) : CanvasLayer()
 }
 

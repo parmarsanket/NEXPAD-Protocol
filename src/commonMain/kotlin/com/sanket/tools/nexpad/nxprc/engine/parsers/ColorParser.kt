@@ -35,20 +35,20 @@ object ColorParser {
             return when (hex.length) {
                 3 -> {
                     val full = "${hex[0]}${hex[0]}${hex[1]}${hex[1]}${hex[2]}${hex[2]}"
-                    ("FF$full").toLong(16)
+                    ("FF$full").toLongOrNull(16)
                 }
                 4 -> {
                     val full = "${hex[3]}${hex[3]}${hex[0]}${hex[0]}${hex[1]}${hex[1]}${hex[2]}${hex[2]}"
-                    full.toLong(16)
+                    full.toLongOrNull(16)
                 }
-                6 -> ("FF$hex").toLong(16)
+                6 -> ("FF$hex").toLongOrNull(16)
                 8 -> {
                     // CSS #RRGGBBAA -> Compose AARRGGBB
                     val r = hex.substring(0, 2)
                     val g = hex.substring(2, 4)
                     val b = hex.substring(4, 6)
                     val a = hex.substring(6, 8)
-                    "$a$r$g$b".toLong(16)
+                    "$a$r$g$b".toLongOrNull(16)
                 }
                 else -> null
             }
@@ -168,6 +168,8 @@ object ColorParser {
     }
 
     fun isDark(color: Long): Boolean {
+        val a = (color shr 24) and 0xFF
+        if (a < 10) return false
         val r = (color shr 16) and 0xFF
         val g = (color shr 8) and 0xFF
         val b = color and 0xFF

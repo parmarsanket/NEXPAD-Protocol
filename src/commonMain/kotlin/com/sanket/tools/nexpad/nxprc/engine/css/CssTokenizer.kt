@@ -134,19 +134,17 @@ object CssTokenizer {
             val stepBody = body.substring(openBrace + 1, closeBrace).trim()
             i = closeBrace + 1
 
-            val percentage = when {
-                timePart.equals("from", ignoreCase = true) -> 0.0f
-                timePart.equals("to", ignoreCase = true) -> 1.0f
-                timePart.endsWith("%") -> (timePart.removeSuffix("%").trim().toFloatOrNull() ?: 0f) / 100f
-                else -> 0.0f
+            val subTimes = timePart.split(",").map { it.trim() }.filter { it.isNotBlank() }
+            val decls = parseDeclarations(stepBody)
+            for (t in subTimes) {
+                val percentage = when {
+                    t.equals("from", ignoreCase = true) -> 0.0f
+                    t.equals("to", ignoreCase = true) -> 1.0f
+                    t.endsWith("%") -> (t.removeSuffix("%").trim().toFloatOrNull() ?: 0f) / 100f
+                    else -> t.toFloatOrNull()?.let { if (it > 1.0f) it / 100f else it } ?: 0.0f
+                }
+                steps.add(CssKeyframeStep(percentage = percentage, declarations = decls))
             }
-
-            steps.add(
-                CssKeyframeStep(
-                    percentage = percentage,
-                    declarations = parseDeclarations(stepBody)
-                )
-            )
         }
         return steps
     }

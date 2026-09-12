@@ -134,12 +134,12 @@ object GeometryParser {
         if (radiusStr.isNullOrBlank()) return CornerRadii()
         val clean = radiusStr.trim()
 
-        if (clean == "50%" || clean.contains("50%")) {
+        val partBeforeSlash = clean.split("/").first().trim()
+        val tokens = partBeforeSlash.split(WHITESPACE_PATTERN).filter { it.isNotBlank() }
+        if (tokens.isNotEmpty() && tokens.all { it == "50%" }) {
             val half = defaultSizeDp / 2f
             return CornerRadii(half, half, half, half)
         }
-
-        val partBeforeSlash = clean.split("/").first().trim()
         val values = mutableListOf<Float>()
         val numMatcher = RADIUS_PATTERN.matcher(partBeforeSlash)
         while (numMatcher.find()) {

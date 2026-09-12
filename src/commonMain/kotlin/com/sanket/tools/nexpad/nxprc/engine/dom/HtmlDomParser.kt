@@ -17,7 +17,9 @@ object HtmlDomParser {
 
     private val SELF_CLOSING = setOf(
         "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "path", "source", "track", "wbr",
-        "circle", "rect", "polygon", "polyline", "line"
+        "circle", "rect", "polygon", "polyline", "line",
+        "fegaussianblur", "fecolormatrix", "fedropshadow", "fecomponenttransfer", "fefuncr", "fefuncg", "fefuncb", "fefunca",
+        "feblend", "feoffset", "femerge", "femergenode", "fecomposite", "feimage", "feturbulence", "fedisplacementmap"
     )
 
     private val STYLE_PATTERN = HtmlPattern.STYLE.pattern
@@ -60,7 +62,8 @@ object HtmlDomParser {
             val isClosing = matcher.group(1) == "/"
             val tagName = matcher.group(2)?.lowercase()
             val rawAttrs = matcher.group(3) ?: ""
-            val selfClose = matcher.group(4) == "/" || (tagName != null && SELF_CLOSING.contains(tagName))
+            val endsWithSlash = rawAttrs.trim().endsWith("/")
+            val selfClose = matcher.group(4) == "/" || endsWithSlash || (tagName != null && SELF_CLOSING.contains(tagName))
             val text = matcher.group(5)
 
             if (text != null) {
@@ -76,7 +79,8 @@ object HtmlDomParser {
                         current = stack.last()
                     }
                 } else {
-                    val attrs = parseAttributes(rawAttrs)
+                    val cleanAttrs = if (endsWithSlash) rawAttrs.trim().removeSuffix("/").trim() else rawAttrs
+                    val attrs = parseAttributes(cleanAttrs)
                     val id = attrs["id"]
                     val classNames = attrs["class"]?.split(WHITESPACE_REGEX)?.filter { it.isNotBlank() } ?: emptyList()
                     val inlineStyles = attrs["style"]?.let { parseInlineStyles(it) } ?: emptyMap()

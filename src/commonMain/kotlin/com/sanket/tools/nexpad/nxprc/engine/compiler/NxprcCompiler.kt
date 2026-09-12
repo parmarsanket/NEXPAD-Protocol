@@ -23,6 +23,9 @@ object NxprcCompiler {
         val parsed = HtmlDomParser.parse(html)
         val stylesheet = CssTokenizer.parse(parsed.embeddedCss)
 
+        // 0. Extract SVG Filter Graph Definitions
+        val svgFilters = SvgFilterParser.parseFilterMap(parsed.root)
+
         // 1. Find the Primary Gamepad Button Node
         val primaryNode = ButtonNodeSelector.findPrimaryButtonNode(parsed.root, stylesheet)
         val style = CssCascadeResolver.computeStyle(primaryNode, stylesheet)
@@ -36,10 +39,12 @@ object NxprcCompiler {
         val buttonWidth = GeometryParser.parsePixelOrPercent(baseProps["width"], 100f, 100f).coerceAtLeast(1f)
         val buttonHeight = GeometryParser.parsePixelOrPercent(baseProps["height"], 100f, 100f).coerceAtLeast(1f)
         val baseOpacity = baseProps["opacity"]?.toFloatOrNull() ?: 1.0f
-        val baseFilter = FilterParser.parse(baseProps["filter"])
+        val baseFilter = FilterParser.parse(baseProps["filter"] ?: primaryNode.attributes["filter"], svgFilters)
 
-        // 2. Parse Outset Box Shadows & Socket Bezel
-        val allBoxShadows = ShadowParser.parseBoxShadows(baseProps["box-shadow"])
+        // 2. Parse Outset Box Shadows & Socket Bezel (including SVG feDropShadow)
+        val urlFilterMatch = Regex("""url\(['"]?#?([^'")]+)['"]?\)""").find(baseProps["filter"] ?: primaryNode.attributes["filter"] ?: "")
+        val svgFilterRef = urlFilterMatch?.let { svgFilters[it.groupValues[1]] }
+        val allBoxShadows = ShadowParser.parseBoxShadows(baseProps["box-shadow"]) + (svgFilterRef?.dropShadows ?: emptyList())
         val outsetShadows = allBoxShadows.filter { !it.isInset }
         val insetShadows = allBoxShadows.filter { it.isInset }
 
@@ -212,7 +217,7 @@ object NxprcCompiler {
             } else rawBeforeBgs
 
             val beforeOpacity = beforeStyle["opacity"]?.toFloatOrNull() ?: 1.0f
-            val beforeFilter = FilterParser.parse(beforeStyle["filter"])
+            val beforeFilter = FilterParser.parse(beforeStyle["filter"], svgFilters)
             val isBeforeTopOnly = beforeStyle["border"] == null && beforeStyle["border-top"] != null
             val beforeBorder = GeometryParser.parseBorder(
                 beforeStyle["border"] ?: beforeStyle["border-top"] ?: beforeStyle["border-width"],
@@ -312,6 +317,7 @@ object NxprcCompiler {
         }
 
         // 5. Recursive DOM Tree Compilation
+        val hasSurfaceSvg = !isBoxPrimitive && (primaryNode.getAllSvgShapes().isNotEmpty() || parsed.root.getAllSvgShapes().isNotEmpty())
         DomTreeCompiler.compileDomChildren(
             parentNode = primaryNode,
             parentWidth = buttonWidth,
@@ -326,7 +332,9 @@ object NxprcCompiler {
             stylesheet = stylesheet,
             layerCollector = layerCollector,
             textNode = textNode,
-            allTextNodes = allTextNodes
+            allTextNodes = allTextNodes,
+            hasSurfaceSvg = hasSurfaceSvg,
+            svgFilters = svgFilters
         )
 
         // 6. ::after: Top specular arc gloss & glass reflection edge
@@ -340,7 +348,7 @@ object NxprcCompiler {
             } else rawAfterBgs
 
             val afterOpacity = afterStyle["opacity"]?.toFloatOrNull() ?: 1.0f
-            val afterFilter = FilterParser.parse(afterStyle["filter"])
+            val afterFilter = FilterParser.parse(afterStyle["filter"], svgFilters)
             val rawAfterBounds = GeometryParser.computeBoxBounds(afterStyle, buttonWidth, buttonHeight)
             val bounds = FlexLayoutEngine.resolveFlexChildBounds(
                 parentStyle = baseProps,
@@ -456,20 +464,55 @@ object NxprcCompiler {
                 val offXRatio = (tcX - buttonWidth / 2f) / buttonWidth
                 val offYRatio = (tcY - buttonHeight / 2f) / buttonHeight
 
-                layerCollector.addLayer(
-                    textStack,
-                    CanvasLayer.CenterGlyph(
-                        text = text,
-                        fontSizeSp = fontSize,
-                        textColor = textColor,
-                        shadowColor = darkTextShadow?.color ?: NxprcDefaults.DEFAULT_SHADOW_COLOR,
-                        shadowOffsetY = darkTextShadow?.offsetY ?: 2.5f,
-                        highlightColor = lightTextHighlight?.color ?: NxprcDefaults.DEFAULT_HIGHLIGHT_COLOR,
-                        textShadows = textShadows,
-                        offsetXRatio = offXRatio,
-                        offsetYRatio = offYRatio
-                    )
+                val lineResult = com.sanket.tools.nexpad.nxprc.engine.text.TextLineBreaker.breakLines(
+                    text = text,
+                    maxWidth = buttonWidth * 0.9f,
+                    fontSizeSp = fontSize,
+                    fontWeight = 700,
+                    whiteSpace = textStyle["white-space"] ?: baseProps["white-space"],
+                    wordBreak = textStyle["word-break"] ?: baseProps["word-break"]
                 )
+
+                if (lineResult.lines.size > 1) {
+                    val totalH = lineResult.totalHeight
+                    val startY = tcY - totalH / 2f + lineResult.lineHeight / 2f
+
+                    lineResult.lines.forEachIndexed { lIdx, line ->
+                        if (line.isNotEmpty()) {
+                            val lineCenterY = startY + lIdx * lineResult.lineHeight
+                            val lineOffYRatio = (lineCenterY - buttonHeight / 2f) / buttonHeight
+                            layerCollector.addLayer(
+                                textStack + lIdx,
+                                CanvasLayer.TextLayer(
+                                    text = line,
+                                    fontSizeSp = fontSize,
+                                    textColor = textColor,
+                                    offsetXRatio = offXRatio,
+                                    offsetYRatio = lineOffYRatio,
+                                    textShadows = textShadows,
+                                    maxLines = 1,
+                                    lineHeightSp = lineResult.lineHeight,
+                                    textAlign = textStyle["text-align"]?.uppercase() ?: "CENTER"
+                                )
+                            )
+                        }
+                    }
+                } else {
+                    layerCollector.addLayer(
+                        textStack,
+                        CanvasLayer.CenterGlyph(
+                            text = text,
+                            fontSizeSp = fontSize,
+                            textColor = textColor,
+                            shadowColor = darkTextShadow?.color ?: NxprcDefaults.DEFAULT_SHADOW_COLOR,
+                            shadowOffsetY = darkTextShadow?.offsetY ?: 2.5f,
+                            highlightColor = lightTextHighlight?.color ?: NxprcDefaults.DEFAULT_HIGHLIGHT_COLOR,
+                            textShadows = textShadows,
+                            offsetXRatio = offXRatio,
+                            offsetYRatio = offYRatio
+                        )
+                    )
+                }
                 centerGlyphAdded = true
             }
         }
@@ -484,24 +527,81 @@ object NxprcCompiler {
             val darkTextShadow = textShadows.firstOrNull { ColorParser.isDark(it.color) }
             val lightTextHighlight = textShadows.firstOrNull { !ColorParser.isDark(it.color) }
 
-            layerCollector.addLayer(
-                200,
-                CanvasLayer.CenterGlyph(
-                    text = centerText,
-                    fontSizeSp = fontSize,
-                    textColor = textColor,
-                    shadowColor = darkTextShadow?.color ?: NxprcDefaults.DEFAULT_SHADOW_COLOR,
-                    shadowOffsetY = darkTextShadow?.offsetY ?: 2.5f,
-                    highlightColor = lightTextHighlight?.color ?: NxprcDefaults.DEFAULT_HIGHLIGHT_COLOR,
-                    textShadows = textShadows
-                )
+            val lineResult = com.sanket.tools.nexpad.nxprc.engine.text.TextLineBreaker.breakLines(
+                text = centerText,
+                maxWidth = buttonWidth * 0.9f,
+                fontSizeSp = fontSize,
+                fontWeight = 700,
+                whiteSpace = baseProps["white-space"],
+                wordBreak = baseProps["word-break"]
             )
+
+            if (lineResult.lines.size > 1) {
+                val totalH = lineResult.totalHeight
+                val startY = buttonHeight / 2f - totalH / 2f + lineResult.lineHeight / 2f
+
+                lineResult.lines.forEachIndexed { lIdx, line ->
+                    if (line.isNotEmpty()) {
+                        val lineCenterY = startY + lIdx * lineResult.lineHeight
+                        val lineOffYRatio = (lineCenterY - buttonHeight / 2f) / buttonHeight
+                        layerCollector.addLayer(
+                            200 + lIdx,
+                            CanvasLayer.TextLayer(
+                                text = line,
+                                fontSizeSp = fontSize,
+                                textColor = textColor,
+                                offsetXRatio = 0f,
+                                offsetYRatio = lineOffYRatio,
+                                textShadows = textShadows,
+                                maxLines = 1,
+                                lineHeightSp = lineResult.lineHeight,
+                                textAlign = baseProps["text-align"]?.uppercase() ?: "CENTER"
+                            )
+                        )
+                    }
+                }
+            } else {
+                layerCollector.addLayer(
+                    200,
+                    CanvasLayer.CenterGlyph(
+                        text = centerText,
+                        fontSizeSp = fontSize,
+                        textColor = textColor,
+                        shadowColor = darkTextShadow?.color ?: NxprcDefaults.DEFAULT_SHADOW_COLOR,
+                        shadowOffsetY = darkTextShadow?.offsetY ?: 2.5f,
+                        highlightColor = lightTextHighlight?.color ?: NxprcDefaults.DEFAULT_HIGHLIGHT_COLOR,
+                        textShadows = textShadows
+                    )
+                )
+            }
         }
 
-        // Touch Active Animations & Idle Keyframes
+        // Touch Active Animations, State Micro-Physics & Idle Keyframes
         val activeTransform = AnimationParser.parseTransforms(style.active["transform"])
         val pressScale = if (activeTransform.scaleX != 1.0f) activeTransform.scaleX else 0.92f
         val pressOffsetY = activeTransform.translateY
+
+        val dampingRatio = baseProps["--spring-damping"]?.toFloatOrNull()
+            ?: primaryNode.attributes["data-damping"]?.toFloatOrNull()
+            ?: stylesheet.customProperties["--spring-damping"]?.toFloatOrNull()
+            ?: 0.75f
+
+        val stiffness = baseProps["--spring-stiffness"]?.toFloatOrNull()
+            ?: primaryNode.attributes["data-stiffness"]?.toFloatOrNull()
+            ?: stylesheet.customProperties["--spring-stiffness"]?.toFloatOrNull()
+            ?: 400f
+
+        val finalPressScale = baseProps["--press-scale"]?.toFloatOrNull()
+            ?: primaryNode.attributes["data-press-scale"]?.toFloatOrNull()
+            ?: stylesheet.customProperties["--press-scale"]?.toFloatOrNull()
+            ?: pressScale
+
+        val springPhysics = SpringPhysicsDef(
+            dampingRatio = dampingRatio,
+            stiffness = stiffness,
+            pressedScale = finalPressScale,
+            enabled = primaryNode.attributes["data-physics"] != "none" && baseProps["--spring-enabled"] != "false"
+        )
 
         val isRotating = AnimationParser.isRotatingAnimation(stylesheet, baseProps)
         val isPulsing = AnimationParser.isPulsingAnimation(stylesheet, baseProps)
@@ -576,7 +676,8 @@ object NxprcCompiler {
                 defaultControl = autoControl.uppercase(),
                 widthDp = buttonWidth.toInt().coerceIn(NxprcDefaults.DEFAULT_MIN_SIZE_DP, NxprcDefaults.DEFAULT_MAX_SIZE_DP),
                 heightDp = buttonHeight.toInt().coerceIn(NxprcDefaults.DEFAULT_MIN_SIZE_DP, NxprcDefaults.DEFAULT_MAX_SIZE_DP),
-                description = "Compiled from HTML/CSS/SVG DOM Engine"
+                description = "Compiled from HTML/CSS/SVG DOM Engine",
+                springPhysics = springPhysics
             ),
             canvas = NxprcCanvas(
                 viewBoxWidth = buttonWidth,
@@ -588,10 +689,10 @@ object NxprcCompiler {
             animations = NxprcAnimations(
                 idleType = idleType,
                 idleDurationMs = allTracks.firstOrNull()?.durationMs ?: 2000,
-                pressScale = pressScale,
+                pressScale = finalPressScale,
                 pressOffsetY = pressOffsetY,
-                springStiffness = 850f,
-                springDamping = 0.65f,
+                springStiffness = stiffness,
+                springDamping = dampingRatio,
                 enableGameRumble = true,
                 rumbleIntensity = 1.0f,
                 joystickSpringTension = if (autoCategory.equals("JOYSTICK", ignoreCase = true)) 800f else 750f,

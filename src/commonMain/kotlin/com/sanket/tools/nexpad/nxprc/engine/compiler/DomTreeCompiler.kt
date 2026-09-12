@@ -1,7 +1,9 @@
 package com.sanket.tools.nexpad.nxprc.engine.compiler
 
 import com.sanket.tools.nexpad.nxprc.CanvasLayer
+import com.sanket.tools.nexpad.nxprc.FillBrush
 import com.sanket.tools.nexpad.nxprc.LayerShapeType
+import com.sanket.tools.nexpad.nxprc.NxprcDefaults
 import com.sanket.tools.nexpad.nxprc.engine.css.CssCascadeResolver
 import com.sanket.tools.nexpad.nxprc.engine.css.CssStylesheet
 import com.sanket.tools.nexpad.nxprc.engine.dom.DomNode
@@ -31,7 +33,9 @@ internal object DomTreeCompiler {
         stylesheet: CssStylesheet,
         layerCollector: LayerCollector,
         textNode: DomNode?,
-        allTextNodes: List<DomNode>
+        allTextNodes: List<DomNode>,
+        hasSurfaceSvg: Boolean = false,
+        svgFilters: Map<String, ParsedSvgFilter> = emptyMap()
     ) {
         val parentStyle = CssCascadeResolver.computeStyle(parentNode, stylesheet).base
         val childBoundsMap = FlexLayoutEngine.layoutFlexContainerChildren(
@@ -55,7 +59,7 @@ internal object DomTreeCompiler {
             if (pseudoStyle == null || !ButtonNodeSelector.isVisible(pseudoStyle)) return
 
             val pOpacity = pseudoStyle["opacity"]?.toFloatOrNull() ?: 1.0f
-            val pFilter = FilterParser.parse(pseudoStyle["filter"])
+            val pFilter = FilterParser.parse(pseudoStyle["filter"], svgFilters)
 
             val pBounds = GeometryParser.computeBoxBounds(pseudoStyle, parentW, parentH)
             val pWidth = pBounds.width
@@ -131,7 +135,6 @@ internal object DomTreeCompiler {
         }
 
         for (child in parentNode.children) {
-            if (child.tag == "#text") continue
             if (allTextNodes.size <= 1 && child == textNode) continue
 
             val childComputed = CssCascadeResolver.computeStyle(child, stylesheet)
@@ -139,7 +142,7 @@ internal object DomTreeCompiler {
             if (!ButtonNodeSelector.isVisible(childStyle)) continue
 
             val cOpacity = childStyle["opacity"]?.toFloatOrNull() ?: 1.0f
-            val cFilter = FilterParser.parse(childStyle["filter"])
+            val cFilter = FilterParser.parse(childStyle["filter"] ?: child.attributes["filter"], svgFilters)
 
             val bounds = childBoundsMap[child] ?: GeometryParser.computeBoxBounds(childStyle, parentWidth, parentHeight)
             val cWidth = bounds.width
@@ -149,6 +152,35 @@ internal object DomTreeCompiler {
 
             val globalX = parentGlobalX + localLeft
             val globalY = parentGlobalY + localTop
+
+            val childZ = GeometryParser.parseZIndex(childStyle)
+            val childStack = parentStackBase + childZ * 10
+
+            // If child is an SVG element, extract its shapes directly into VectorPath layers
+            if (child.tag.equals("svg", ignoreCase = true)) {
+                if (hasSurfaceSvg) continue
+                val svgShapes = child.getAllSvgShapes()
+                if (svgShapes.isNotEmpty()) {
+                    val scale = (minOf(cWidth / buttonWidth, cHeight / buttonHeight)).coerceIn(0.05f, 2.0f)
+                    val offX = (globalX + cWidth / 2f - buttonWidth / 2f) / buttonWidth
+                    val offY = (globalY + cHeight / 2f - buttonHeight / 2f) / buttonHeight
+                    svgShapes.forEachIndexed { sIdx, shape ->
+                        val resolvedFill = shape.fill ?: if (sIdx == 0 && shape.stroke == null) FillBrush.Solid(NxprcDefaults.DEFAULT_ACCENT_COLOR) else shape.fill ?: FillBrush.Solid(0x00000000L)
+                        layerCollector.addLayer(
+                            childStack + 50 + sIdx,
+                            CanvasLayer.VectorPath(
+                                pathData = shape.pathData,
+                                fill = resolvedFill,
+                                stroke = shape.stroke,
+                                offsetXRatio = offX,
+                                offsetYRatio = offY,
+                                scale = scale
+                            )
+                        )
+                    }
+                }
+                continue
+            }
 
             val cRadii = GeometryParser.parseBorderRadius(childStyle["border-radius"], defaultSizeDp = cWidth)
             val isChildTopOnly = childStyle["border"] == null && childStyle["border-top"] != null
@@ -167,9 +199,6 @@ internal object DomTreeCompiler {
             }
             val cPolySides = cClip?.polygonSides ?: 0
             val cPolyPath = cClip?.pathData ?: ""
-
-            val childZ = GeometryParser.parseZIndex(childStyle)
-            val childStack = parentStackBase + childZ * 10
 
             val cBg = childStyle["background"] ?: childStyle["background-color"]
             val cFills = if (cBg != null) {
@@ -227,29 +256,72 @@ internal object DomTreeCompiler {
 
             // If this element has direct text content and multiple text nodes exist in the component, emit TextLayer
             val childText = child.findFirstText()
-            if (childText != null && allTextNodes.size > 1 && child.children.none { it.tag != "#text" && it.findFirstText() != null }) {
+            if (childText != null && allTextNodes.size > 1 && child.children.none { it.findFirstText() != null }) {
                 val tColor = ColorParser.parse(childStyle["color"] ?: baseProps["color"]) ?: 0xFFFFFFFFL
                 val tFontSize = GeometryParser.parseFontSize(childStyle["font-size"] ?: baseProps["font-size"]) ?: 14f
                 val tWeight = childStyle["font-weight"]?.toIntOrNull() ?: if (childStyle["font-weight"]?.contains("bold", true) == true) 700 else 400
                 val tShadows = ShadowParser.parseTextShadows(childStyle["text-shadow"])
+                val tAlign = childStyle["text-align"]?.trim()?.uppercase() ?: "CENTER"
 
-                val childCenterX = globalX + cWidth / 2f
-                val childCenterY = globalY + cHeight / 2f
-                val offXRatio = (childCenterX - buttonWidth / 2f) / buttonWidth
-                val offYRatio = (childCenterY - buttonHeight / 2f) / buttonHeight
-
-                layerCollector.addLayer(
-                    childStack + 150,
-                    CanvasLayer.TextLayer(
-                        text = childText,
-                        fontSizeSp = tFontSize,
-                        fontWeight = tWeight,
-                        textColor = tColor,
-                        offsetXRatio = offXRatio,
-                        offsetYRatio = offYRatio,
-                        textShadows = tShadows
-                    )
+                val lineResult = com.sanket.tools.nexpad.nxprc.engine.text.TextLineBreaker.breakLines(
+                    text = childText,
+                    maxWidth = cWidth,
+                    fontSizeSp = tFontSize,
+                    fontWeight = tWeight,
+                    whiteSpace = childStyle["white-space"],
+                    wordBreak = childStyle["word-break"]
                 )
+
+                if (lineResult.lines.size > 1) {
+                    val baseCenterY = globalY + cHeight / 2f
+                    val totalH = lineResult.totalHeight
+                    val startY = baseCenterY - totalH / 2f + lineResult.lineHeight / 2f
+
+                    lineResult.lines.forEachIndexed { lIdx, line ->
+                        if (line.isNotEmpty()) {
+                            val lineCenterY = startY + lIdx * lineResult.lineHeight
+                            val offXRatio = (globalX + cWidth / 2f - buttonWidth / 2f) / buttonWidth
+                            val offYRatio = (lineCenterY - buttonHeight / 2f) / buttonHeight
+
+                            layerCollector.addLayer(
+                                childStack + 150 + lIdx,
+                                CanvasLayer.TextLayer(
+                                    text = line,
+                                    fontSizeSp = tFontSize,
+                                    fontWeight = tWeight,
+                                    textColor = tColor,
+                                    offsetXRatio = offXRatio,
+                                    offsetYRatio = offYRatio,
+                                    textShadows = tShadows,
+                                    maxLines = 1,
+                                    lineHeightSp = lineResult.lineHeight,
+                                    textAlign = tAlign
+                                )
+                            )
+                        }
+                    }
+                } else {
+                    val childCenterX = globalX + cWidth / 2f
+                    val childCenterY = globalY + cHeight / 2f
+                    val offXRatio = (childCenterX - buttonWidth / 2f) / buttonWidth
+                    val offYRatio = (childCenterY - buttonHeight / 2f) / buttonHeight
+
+                    layerCollector.addLayer(
+                        childStack + 150,
+                        CanvasLayer.TextLayer(
+                            text = childText,
+                            fontSizeSp = tFontSize,
+                            fontWeight = tWeight,
+                            textColor = tColor,
+                            offsetXRatio = offXRatio,
+                            offsetYRatio = offYRatio,
+                            textShadows = tShadows,
+                            maxLines = 1,
+                            lineHeightSp = lineResult.lineHeight,
+                            textAlign = tAlign
+                        )
+                    )
+                }
             }
 
             if (child.children.isNotEmpty()) {
@@ -267,7 +339,9 @@ internal object DomTreeCompiler {
                     stylesheet = stylesheet,
                     layerCollector = layerCollector,
                     textNode = textNode,
-                    allTextNodes = allTextNodes
+                    allTextNodes = allTextNodes,
+                    hasSurfaceSvg = hasSurfaceSvg,
+                    svgFilters = svgFilters
                 )
             }
 

@@ -11,7 +11,7 @@ internal object NxprcBinaryCodec {
         ignoreUnknownKeys = true
         isLenient = true
         prettyPrint = false
-        encodeDefaults = true
+        encodeDefaults = false
     }
 
     fun encode(doc: NxprcDocument): ByteArray {

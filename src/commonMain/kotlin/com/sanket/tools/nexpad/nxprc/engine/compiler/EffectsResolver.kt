@@ -16,7 +16,10 @@ internal object EffectsResolver {
         blurRadius = parsed.blurRadiusPx,
         brightness = parsed.brightness,
         saturation = parsed.saturate,
-        renderEffect = if (parsed.blurRadiusPx > 0f) {
+        hueRotateDegrees = parsed.hueRotateDegrees,
+        renderEffect = if (parsed.renderEffect.blurRadiusX > 0f || parsed.renderEffect.blurRadiusY > 0f) {
+            parsed.renderEffect
+        } else if (parsed.blurRadiusPx > 0f) {
             RenderEffectDef(
                 blurRadiusX = parsed.blurRadiusPx,
                 blurRadiusY = parsed.blurRadiusPx,
