@@ -144,17 +144,19 @@ object NxprcCompiler {
                 )
             }
 
-            // 3. Main Surface Background (SVG Paths or Multi-layer Gradients)
-            val svgPaths = primaryNode.getAllSvgPaths().ifEmpty { parsed.root.getAllSvgPaths() }
+            // 3. Main Surface Background (SVG Shapes/Paths or Multi-layer Gradients)
+            val svgShapes = primaryNode.getAllSvgShapes().ifEmpty { parsed.root.getAllSvgShapes() }
 
-            if (svgPaths.isNotEmpty()) {
-                svgPaths.forEachIndexed { index, path ->
+            if (svgShapes.isNotEmpty()) {
+                svgShapes.forEachIndexed { index, shape ->
+                    val resolvedFill = shape.fill ?: if (index == 0) allFills.firstOrNull() ?: FillBrush.Solid(NxprcDefaults.DEFAULT_FILL_COLOR) else FillBrush.Solid(0x00000000L)
+                    val resolvedStroke = shape.stroke ?: border
                     layerCollector.addLayer(
                         10,
                         CanvasLayer.VectorPath(
-                            pathData = path,
-                            fill = if (index == 0) allFills.first() else FillBrush.Solid(0x00000000L),
-                            stroke = border,
+                            pathData = shape.pathData,
+                            fill = resolvedFill,
+                            stroke = resolvedStroke,
                             isRotating = baseRotating
                         )
                     )

@@ -1129,4 +1129,54 @@ class NxprcEngineTest {
         assertEquals(LayerOutsets(), layer.effectiveEffects.layerOutsets)
         assertEquals(RenderEffectDef(), layer.effectiveEffects.filter.renderEffect)
     }
+
+    @Test
+    fun testSvgGeometryShapesParsing() {
+        val html = """
+            <button class="svg-shapes-btn">
+                <svg viewBox="0 0 100 100">
+                    <line x1="0" y1="0" x2="100" y2="100" stroke="#FF0000" stroke-width="2" />
+                    <polygon points="0,0 100,0 50,100" fill="#00FF00" />
+                    <polyline points="10,10 20,20 30,10" stroke="#0000FF" />
+                    <circle cx="50" cy="50" r="25" fill="#FFFF00" />
+                    <rect x="10" y="10" width="80" height="40" fill="#FFA500" />
+                </svg>
+            </button>
+        """.trimIndent()
+
+        val doc = NxprcPackager.compile(html, id = "rc.svg_shapes_test")
+        val vectorLayers = doc.canvas.layers.filterIsInstance<CanvasLayer.VectorPath>()
+        assertEquals(5, vectorLayers.size)
+
+        // 1. Line
+        val lineLayer = vectorLayers[0]
+        assertEquals("M 0.0 0.0 L 100.0 100.0", lineLayer.pathData)
+        assertNotNull(lineLayer.stroke)
+        assertEquals(0xFFFF0000L, lineLayer.stroke?.color)
+        assertEquals(2f, lineLayer.stroke?.width)
+
+        // 2. Polygon
+        val polyLayer = vectorLayers[1]
+        assertEquals("M 0.0 0.0 L 100.0 0.0 L 50.0 100.0 Z", polyLayer.pathData)
+        assertTrue(polyLayer.fill is FillBrush.Solid)
+        assertEquals(0xFF00FF00L, (polyLayer.fill as FillBrush.Solid).color)
+
+        // 3. Polyline
+        val polylineLayer = vectorLayers[2]
+        assertEquals("M 10.0 10.0 L 20.0 20.0 L 30.0 10.0", polylineLayer.pathData)
+        assertNotNull(polylineLayer.stroke)
+        assertEquals(0xFF0000FFL, polylineLayer.stroke?.color)
+
+        // 4. Circle
+        val circleLayer = vectorLayers[3]
+        assertTrue(circleLayer.pathData.contains("A 25.0 25.0"))
+        assertTrue(circleLayer.fill is FillBrush.Solid)
+        assertEquals(0xFFFFFF00L, (circleLayer.fill as FillBrush.Solid).color)
+
+        // 5. Rect
+        val rectLayer = vectorLayers[4]
+        assertEquals("M 10.0 10.0 L 90.0 10.0 L 90.0 50.0 L 10.0 50.0 Z", rectLayer.pathData)
+        assertTrue(rectLayer.fill is FillBrush.Solid)
+        assertEquals(0xFFFFA500L, (rectLayer.fill as FillBrush.Solid).color)
+    }
 }

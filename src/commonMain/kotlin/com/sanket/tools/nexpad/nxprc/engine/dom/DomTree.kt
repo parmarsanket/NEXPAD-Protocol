@@ -41,15 +41,20 @@ class DomNode(
         return null
     }
 
-    fun getAllSvgPaths(): List<String> {
-        val paths = mutableListOf<String>()
+    fun getAllSvgPaths(): List<String> = getAllSvgShapes().map { it.pathData }
+
+    fun getAllSvgShapes(): List<com.sanket.tools.nexpad.nxprc.engine.parsers.SvgShapeElement> {
+        val shapes = mutableListOf<com.sanket.tools.nexpad.nxprc.engine.parsers.SvgShapeElement>()
         fun recurse(node: DomNode) {
-            if (node.tag.equals("path", ignoreCase = true)) {
-                node.attributes["d"]?.let { if (it.isNotBlank()) paths.add(it) }
+            val path = com.sanket.tools.nexpad.nxprc.engine.parsers.SvgGeometryParser.toPathData(node)
+            if (!path.isNullOrBlank()) {
+                val fill = com.sanket.tools.nexpad.nxprc.engine.parsers.SvgGeometryParser.parseFill(node)
+                val stroke = com.sanket.tools.nexpad.nxprc.engine.parsers.SvgGeometryParser.parseStroke(node)
+                shapes.add(com.sanket.tools.nexpad.nxprc.engine.parsers.SvgShapeElement(path, fill, stroke))
             }
             node.children.forEach { recurse(it) }
         }
         recurse(this)
-        return paths
+        return shapes
     }
 }
