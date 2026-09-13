@@ -2,7 +2,11 @@ package com.sanket.tools.nexpad.nxprc.engine.parsers
 
 import com.sanket.tools.nexpad.nxprc.FillBrush
 import com.sanket.tools.nexpad.nxprc.StrokeStyle
+import com.sanket.tools.nexpad.nxprc.engine.css.CssCascadeResolver
+import com.sanket.tools.nexpad.nxprc.engine.css.CssStylesheet
 import com.sanket.tools.nexpad.nxprc.engine.dom.DomNode
+import kotlin.math.atan2
+import kotlin.math.roundToInt
 
 /**
  * Represents a parsed SVG shape with its geometry path and optional presentation styling.
@@ -108,43 +112,256 @@ object SvgGeometryParser {
         return "M ${cx - rx} $cy A $rx $ry 0 1 0 ${cx + rx} $cy A $rx $ry 0 1 0 ${cx - rx} $cy Z"
     }
 
-    fun parseFill(node: DomNode): FillBrush? {
-        val fillStr = node.attributes["fill"] ?: node.inlineStyles["fill"]
+    private val URL_REF_REGEX = Regex("""url\(\s*['"]?#([^'")]+)['"]?\s*\)""")
+
+    fun applyAlpha(color: Long, alpha: Float): Long {
+        val a = ((color ushr 24 and 0xFF) * alpha.coerceIn(0f, 1f)).roundToInt().coerceIn(0, 255)
+        return (a.toLong() shl 24) or (color and 0x00FFFFFFL)
+    }
+
+    private fun parseOffset(str: String): Float {
+        val trimmed = str.trim()
+        return if (trimmed.endsWith("%")) {
+            ((trimmed.removeSuffix("%").toFloatOrNull() ?: 0f) / 100f).coerceIn(0f, 1f)
+        } else {
+            (trimmed.toFloatOrNull() ?: 0f).coerceIn(0f, 1f)
+        }
+    }
+
+    private fun parseOpacity(str: String): Float {
+        val trimmed = str.trim()
+        return if (trimmed.endsWith("%")) {
+            ((trimmed.removeSuffix("%").toFloatOrNull() ?: 100f) / 100f).coerceIn(0f, 1f)
+        } else {
+            (trimmed.toFloatOrNull() ?: 1.0f).coerceIn(0f, 1f)
+        }
+    }
+
+    private fun parseCoord(str: String?): Float? {
+        if (str == null) return null
+        val trimmed = str.trim()
+        return if (trimmed.endsWith("%")) {
+            (trimmed.removeSuffix("%").toFloatOrNull() ?: 0f) / 100f
+        } else {
+            trimmed.toFloatOrNull()
+        }
+    }
+
+    fun extractPaintServers(root: DomNode, stylesheet: CssStylesheet? = null): Map<String, FillBrush> {
+        val paintServers = mutableMapOf<String, FillBrush>()
+        val actualRoot = root.findRoot()
+        val gradientNodes = actualRoot.findByTag("lineargradient") + actualRoot.findByTag("radialgradient")
+
+        for (gNode in gradientNodes) {
+            val id = gNode.attributes["id"]?.trim()?.removePrefix("#") ?: continue
+            val brush = parseGradientElement(gNode, actualRoot, stylesheet)
+            if (brush != null) {
+                paintServers[id] = brush
+            }
+        }
+        return paintServers
+    }
+
+    private fun parseGradientElement(
+        node: DomNode,
+        root: DomNode,
+        stylesheet: CssStylesheet?
+    ): FillBrush? {
+        var stopNodes = node.findByTag("stop")
+        if (stopNodes.isEmpty()) {
+            val href = (node.attributes["href"] ?: node.attributes["xlink:href"])?.trim()?.removePrefix("#")
+            if (href != null) {
+                val refNode = root.findFirst { it.attributes["id"] == href }
+                if (refNode != null) {
+                    stopNodes = refNode.findByTag("stop")
+                }
+            }
+        }
+
+        val stopsList = mutableListOf<Pair<Float, Long>>()
+        for (stopNode in stopNodes) {
+            val offsetStr = stopNode.attributes["offset"] ?: stopNode.inlineStyles["offset"] ?: "0"
+            val offset = parseOffset(offsetStr)
+
+            val colorStr = stopNode.attributes["stop-color"]
+                ?: stopNode.inlineStyles["stop-color"]
+                ?: (if (stylesheet != null) CssCascadeResolver.computeStyle(stopNode, stylesheet).base["stop-color"] else null)
+                ?: stopNode.attributes["fill"]
+                ?: "#000000"
+
+            val baseColor = ColorParser.parse(colorStr) ?: 0xFF000000L
+
+            val opacityStr = stopNode.attributes["stop-opacity"]
+                ?: stopNode.inlineStyles["stop-opacity"]
+                ?: (if (stylesheet != null) CssCascadeResolver.computeStyle(stopNode, stylesheet).base["stop-opacity"] else null)
+
+            val opacity = opacityStr?.let { parseOpacity(it) } ?: 1.0f
+            val finalColor = applyAlpha(baseColor, opacity)
+            stopsList.add(offset to finalColor)
+        }
+
+        val sortedStops = if (stopsList.size >= 2) {
+            stopsList.sortedBy { it.first }
+        } else if (stopsList.size == 1) {
+            listOf(0f to stopsList[0].second, 1f to stopsList[0].second)
+        } else {
+            listOf(0f to 0xFF000000L, 1f to 0xFFFFFFFFL)
+        }
+
+        val colors = sortedStops.map { it.second }
+        val stopOffsets = sortedStops.map { it.first }
+
+        val isLinear = node.tag.equals("lineargradient", ignoreCase = true)
+        return if (isLinear) {
+            val x1 = parseCoord(node.attributes["x1"]) ?: 0f
+            val y1 = parseCoord(node.attributes["y1"]) ?: 0f
+            val x2 = parseCoord(node.attributes["x2"]) ?: 1f
+            val y2 = parseCoord(node.attributes["y2"]) ?: 0f
+
+            val dx = x2 - x1
+            val dy = y2 - y1
+            var angleDeg = if (dx == 0f && dy == 0f) {
+                90f
+            } else {
+                ((Math.toDegrees(atan2(dy.toDouble(), dx.toDouble())) + 90.0) % 360.0).toFloat().let {
+                    if (it < 0f) it + 360f else it
+                }
+            }
+
+            val transform = node.attributes["gradientTransform"]
+            if (transform != null) {
+                val rotateMatch = Regex("""rotate\(\s*(-?\d+(?:\.\d+)?)\s*\)""").find(transform)
+                if (rotateMatch != null) {
+                    val rDeg = rotateMatch.groupValues[1].toFloatOrNull() ?: 0f
+                    angleDeg = (angleDeg + rDeg) % 360f
+                    if (angleDeg < 0f) angleDeg += 360f
+                }
+            }
+
+            FillBrush.LinearGradient(
+                colors = colors,
+                angleDegrees = angleDeg,
+                stops = stopOffsets
+            )
+        } else {
+            val cx = parseCoord(node.attributes["cx"]) ?: 0.5f
+            val cy = parseCoord(node.attributes["cy"]) ?: 0.5f
+            val r = parseCoord(node.attributes["r"]) ?: 0.5f
+
+            FillBrush.RadialGradient(
+                colors = colors,
+                radiusRatio = r,
+                centerXRatio = cx,
+                centerYRatio = cy,
+                stops = stopOffsets,
+                aspectRatio = 1.0f
+            )
+        }
+    }
+
+    fun parseFill(
+        node: DomNode,
+        stylesheet: CssStylesheet? = null,
+        paintServers: Map<String, FillBrush> = emptyMap()
+    ): FillBrush? {
+        val computed = if (stylesheet != null) CssCascadeResolver.computeStyle(node, stylesheet).base else emptyMap()
+
+        val fillStr = node.attributes["fill"] ?: node.inlineStyles["fill"] ?: computed["fill"]
+        var brush: FillBrush? = null
+
         if (fillStr != null) {
-            val clean = fillStr.trim().lowercase()
-            if (clean == "none" || clean == "transparent") {
+            val clean = fillStr.trim()
+            val cleanLower = clean.lowercase()
+            if (cleanLower == "none" || cleanLower == "transparent") {
                 return FillBrush.Solid(0x00000000L)
             }
-            val color = ColorParser.parse(clean)
-            if (color != null) return FillBrush.Solid(color)
+            val urlMatch = URL_REF_REGEX.find(clean)
+            if (urlMatch != null) {
+                val refId = urlMatch.groupValues[1].trim()
+                brush = paintServers[refId]
+            }
+            if (brush == null) {
+                val color = ColorParser.parse(cleanLower)
+                if (color != null) brush = FillBrush.Solid(color)
+            }
         }
 
         // Standard SVG default for stroke-only elements (line, polyline) is transparent fill
         val tag = node.tag.lowercase()
-        if (tag == "line" || tag == "polyline") {
+        if (brush == null && (tag == "line" || tag == "polyline")) {
             return FillBrush.Solid(0x00000000L)
         }
 
-        return null
+        if (brush == null) return null
+
+        // Modulate opacity and fill-opacity if present
+        val opacityStr = node.attributes["opacity"] ?: node.inlineStyles["opacity"] ?: computed["opacity"]
+        val fillOpacityStr = node.attributes["fill-opacity"] ?: node.inlineStyles["fill-opacity"] ?: computed["fill-opacity"]
+        val op = opacityStr?.let { parseOpacity(it) } ?: 1.0f
+        val fOp = fillOpacityStr?.let { parseOpacity(it) } ?: 1.0f
+        val totalOpacity = op * fOp
+
+        return if (totalOpacity < 1.0f) {
+            when (brush) {
+                is FillBrush.Solid -> brush.copy(color = applyAlpha(brush.color, totalOpacity))
+                is FillBrush.LinearGradient -> brush.copy(colors = brush.colors.map { applyAlpha(it, totalOpacity) })
+                is FillBrush.RadialGradient -> brush.copy(colors = brush.colors.map { applyAlpha(it, totalOpacity) })
+                is FillBrush.SweepGradient -> brush.copy(colors = brush.colors.map { applyAlpha(it, totalOpacity) })
+            }
+        } else {
+            brush
+        }
     }
 
-    fun parseStroke(node: DomNode): StrokeStyle? {
-        val strokeStr = node.attributes["stroke"] ?: node.inlineStyles["stroke"] ?: return null
-        val clean = strokeStr.trim().lowercase()
-        if (clean == "none" || clean == "transparent") return null
+    fun parseStroke(
+        node: DomNode,
+        stylesheet: CssStylesheet? = null,
+        paintServers: Map<String, FillBrush> = emptyMap()
+    ): StrokeStyle? {
+        val computed = if (stylesheet != null) CssCascadeResolver.computeStyle(node, stylesheet).base else emptyMap()
 
-        val color = ColorParser.parse(clean) ?: return null
-        val widthStr = node.attributes["stroke-width"] ?: node.inlineStyles["stroke-width"]
+        val strokeStr = node.attributes["stroke"] ?: node.inlineStyles["stroke"] ?: computed["stroke"] ?: return null
+        val clean = strokeStr.trim()
+        val cleanLower = clean.lowercase()
+        if (cleanLower == "none" || cleanLower == "transparent") return null
+
+        var color: Long? = null
+        val urlMatch = URL_REF_REGEX.find(clean)
+        if (urlMatch != null) {
+            val refId = urlMatch.groupValues[1].trim()
+            val server = paintServers[refId]
+            if (server != null) {
+                color = when (server) {
+                    is FillBrush.Solid -> server.color
+                    is FillBrush.LinearGradient -> server.colors.firstOrNull()
+                    is FillBrush.RadialGradient -> server.colors.firstOrNull()
+                    is FillBrush.SweepGradient -> server.colors.firstOrNull()
+                }
+            }
+        }
+        if (color == null) {
+            color = ColorParser.parse(cleanLower) ?: return null
+        }
+
+        // Apply stroke-opacity and opacity
+        val opacityStr = node.attributes["opacity"] ?: node.inlineStyles["opacity"] ?: computed["opacity"]
+        val strokeOpacityStr = node.attributes["stroke-opacity"] ?: node.inlineStyles["stroke-opacity"] ?: computed["stroke-opacity"]
+        val op = opacityStr?.let { parseOpacity(it) } ?: 1.0f
+        val sOp = strokeOpacityStr?.let { parseOpacity(it) } ?: 1.0f
+        val totalOpacity = op * sOp
+        val finalColor = if (totalOpacity < 1.0f) applyAlpha(color, totalOpacity) else color
+
+        val widthStr = node.attributes["stroke-width"] ?: node.inlineStyles["stroke-width"] ?: computed["stroke-width"]
         val width = widthStr?.let {
             val m = CssSyntaxPattern.LENGTH.matcher(it)
             if (m.find()) m.group(1).toFloatOrNull() else it.toFloatOrNull()
         } ?: 1.0f
 
-        val dashStr = node.attributes["stroke-dasharray"] ?: node.inlineStyles["stroke-dasharray"]
+        val dashStr = node.attributes["stroke-dasharray"] ?: node.inlineStyles["stroke-dasharray"] ?: computed["stroke-dasharray"]
         val isDashed = !dashStr.isNullOrBlank()
 
         return StrokeStyle(
-            color = color,
+            color = finalColor,
             width = width,
             isDashed = isDashed,
             dashWidth = if (isDashed) width * 3f else 0f,

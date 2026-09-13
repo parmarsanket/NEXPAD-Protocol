@@ -175,7 +175,8 @@ internal object DomTreeCompiler {
             // If child is an SVG element, extract its shapes directly into VectorPath layers
             if (child.tag.equals("svg", ignoreCase = true)) {
                 if (hasSurfaceSvg) continue
-                val svgShapes = child.getAllSvgShapes()
+                val paintServers = SvgGeometryParser.extractPaintServers(child, stylesheet)
+                val svgShapes = child.getAllSvgShapes(stylesheet, paintServers)
                 if (svgShapes.isNotEmpty()) {
                     val scale = (minOf(cWidth / buttonWidth, cHeight / buttonHeight)).coerceIn(0.05f, 2.0f)
                     val offX = (globalX + cWidth / 2f - buttonWidth / 2f) / buttonWidth

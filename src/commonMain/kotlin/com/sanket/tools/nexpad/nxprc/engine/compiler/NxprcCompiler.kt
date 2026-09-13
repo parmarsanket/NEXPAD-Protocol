@@ -154,7 +154,8 @@ object NxprcCompiler {
             }
 
             // 3. Main Surface Background (SVG Shapes/Paths or Multi-layer Gradients)
-            val svgShapes = primaryNode.getAllSvgShapes().ifEmpty { parsed.root.getAllSvgShapes() }
+            val paintServers = SvgGeometryParser.extractPaintServers(primaryNode, stylesheet)
+            val svgShapes = primaryNode.getAllSvgShapes(stylesheet, paintServers).ifEmpty { parsed.root.getAllSvgShapes(stylesheet, paintServers) }
 
             if (svgShapes.isNotEmpty()) {
                 svgShapes.forEachIndexed { index, shape ->
@@ -320,7 +321,8 @@ object NxprcCompiler {
         }
 
         // 5. Recursive DOM Tree Compilation
-        val hasSurfaceSvg = !isBoxPrimitive && (primaryNode.getAllSvgShapes().isNotEmpty() || parsed.root.getAllSvgShapes().isNotEmpty())
+        val paintServers = SvgGeometryParser.extractPaintServers(primaryNode, stylesheet)
+        val hasSurfaceSvg = !isBoxPrimitive && (primaryNode.getAllSvgShapes(stylesheet, paintServers).isNotEmpty() || parsed.root.getAllSvgShapes(stylesheet, paintServers).isNotEmpty())
         DomTreeCompiler.compileDomChildren(
             parentNode = primaryNode,
             parentWidth = buttonWidth,

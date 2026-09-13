@@ -17,7 +17,7 @@ object HtmlDomParser {
 
     private val SELF_CLOSING = setOf(
         "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "path", "source", "track", "wbr",
-        "circle", "rect", "polygon", "polyline", "line",
+        "circle", "rect", "polygon", "polyline", "line", "stop",
         "fegaussianblur", "fecolormatrix", "fedropshadow", "fecomponenttransfer", "fefuncr", "fefuncg", "fefuncb", "fefunca",
         "feblend", "feoffset", "femerge", "femergenode", "fecomposite", "feimage", "feturbulence", "fedisplacementmap"
     )

@@ -50,15 +50,28 @@ class DomNode(
         return null
     }
 
+    fun findRoot(): DomNode {
+        var curr = this
+        while (curr.parent != null) {
+            curr = curr.parent!!
+        }
+        return curr
+    }
+
     fun getAllSvgPaths(): List<String> = getAllSvgShapes().map { it.pathData }
 
-    fun getAllSvgShapes(): List<com.sanket.tools.nexpad.nxprc.engine.parsers.SvgShapeElement> {
+    fun getAllSvgShapes(
+        stylesheet: com.sanket.tools.nexpad.nxprc.engine.css.CssStylesheet? = null,
+        paintServers: Map<String, com.sanket.tools.nexpad.nxprc.FillBrush> = emptyMap()
+    ): List<com.sanket.tools.nexpad.nxprc.engine.parsers.SvgShapeElement> {
         val shapes = mutableListOf<com.sanket.tools.nexpad.nxprc.engine.parsers.SvgShapeElement>()
         fun recurse(node: DomNode) {
+            if (node.tag.equals("defs", ignoreCase = true)) return
+
             val path = com.sanket.tools.nexpad.nxprc.engine.parsers.SvgGeometryParser.toPathData(node)
             if (!path.isNullOrBlank()) {
-                val fill = com.sanket.tools.nexpad.nxprc.engine.parsers.SvgGeometryParser.parseFill(node)
-                val stroke = com.sanket.tools.nexpad.nxprc.engine.parsers.SvgGeometryParser.parseStroke(node)
+                val fill = com.sanket.tools.nexpad.nxprc.engine.parsers.SvgGeometryParser.parseFill(node, stylesheet, paintServers)
+                val stroke = com.sanket.tools.nexpad.nxprc.engine.parsers.SvgGeometryParser.parseStroke(node, stylesheet, paintServers)
                 shapes.add(com.sanket.tools.nexpad.nxprc.engine.parsers.SvgShapeElement(path, fill, stroke))
             }
             node.children.forEach { recurse(it) }
