@@ -34,6 +34,25 @@ object NxprcCompiler {
         val primaryNode = ButtonNodeSelector.findPrimaryButtonNode(parsed.root, stylesheet)
         val style = CssCascadeResolver.computeStyle(primaryNode, stylesheet, styleCache)
 
+        val autoControl = primaryNode.attributes["data-control"]
+            ?: primaryNode.attributes["data-key"]
+            ?: parsed.root.attributes["data-control"]
+            ?: parsed.root.attributes["data-key"]
+            ?: defaultControl
+
+        val autoCategory = primaryNode.attributes["data-category"]
+            ?: parsed.root.attributes["data-category"]
+            ?: if (primaryNode.classNames.any { it.contains("stick") || it.contains("joy") || it.contains("thumb") }) "JOYSTICK" else category
+
+        val autoName = primaryNode.attributes["data-name"]
+            ?: parsed.root.attributes["data-name"]
+            ?: name
+
+        val autoId = primaryNode.attributes["data-id"]
+            ?: primaryNode.id
+            ?: parsed.root.attributes["data-id"]
+            ?: id
+
         val layerCollector = LayerCollector()
 
         val baseProps = style.base
@@ -353,7 +372,8 @@ object NxprcCompiler {
             surfaceSvgNode = surfaceSvgNode,
             svgFilters = svgFilters,
             styleCache = styleCache,
-            resolvedNodeBounds = resolvedNodeBounds
+            resolvedNodeBounds = resolvedNodeBounds,
+            category = autoCategory
         )
 
         // 6. ::after: Top specular arc gloss & glass reflection edge
@@ -516,7 +536,8 @@ object NxprcCompiler {
                                     maxLines = 1,
                                     lineHeightSp = lineResult.lineHeight,
                                     textAlign = textStyle["text-align"]?.uppercase() ?: "CENTER"
-                                )
+                                ),
+                                isThumbCap = autoCategory.equals("JOYSTICK", ignoreCase = true)
                             )
                         }
                     }
@@ -533,7 +554,8 @@ object NxprcCompiler {
                             textShadows = textShadows,
                             offsetXRatio = offXRatio,
                             offsetYRatio = offYRatio
-                        )
+                        ),
+                        isThumbCap = autoCategory.equals("JOYSTICK", ignoreCase = true)
                     )
                 }
                 centerGlyphAdded = true
@@ -579,7 +601,8 @@ object NxprcCompiler {
                                 maxLines = 1,
                                 lineHeightSp = lineResult.lineHeight,
                                 textAlign = baseProps["text-align"]?.uppercase() ?: "CENTER"
-                            )
+                            ),
+                            isThumbCap = autoCategory.equals("JOYSTICK", ignoreCase = true)
                         )
                     }
                 }
@@ -594,7 +617,8 @@ object NxprcCompiler {
                         shadowOffsetY = darkTextShadow?.offsetY ?: 2.5f,
                         highlightColor = lightTextHighlight?.color ?: NxprcDefaults.DEFAULT_HIGHLIGHT_COLOR,
                         textShadows = textShadows
-                    )
+                    ),
+                    isThumbCap = autoCategory.equals("JOYSTICK", ignoreCase = true)
                 )
             }
         }
@@ -651,25 +675,6 @@ object NxprcCompiler {
             else -> com.sanket.tools.nexpad.nxprc.IdleAnimationType.NONE.name
         }
 
-        val autoControl = primaryNode.attributes["data-control"]
-            ?: primaryNode.attributes["data-key"]
-            ?: parsed.root.attributes["data-control"]
-            ?: parsed.root.attributes["data-key"]
-            ?: defaultControl
-
-        val autoCategory = primaryNode.attributes["data-category"]
-            ?: parsed.root.attributes["data-category"]
-            ?: category
-
-        val autoName = primaryNode.attributes["data-name"]
-            ?: parsed.root.attributes["data-name"]
-            ?: name
-
-        val autoId = primaryNode.attributes["data-id"]
-            ?: primaryNode.id
-            ?: parsed.root.attributes["data-id"]
-            ?: id
-
         val primaryClass = primaryNode.classNames.firstOrNull()?.replace("-", "_")
         val resolvedId = when {
             autoId.isNotBlank() && autoId != "rc.custom" -> if (autoId.startsWith("rc.")) autoId else "rc.$autoId"
@@ -689,7 +694,22 @@ object NxprcCompiler {
         val clipToBounds = overflow == "hidden" || rootClip != null
 
         val totalCanvasOutsets = EffectsResolver.computeTotalCanvasOutsets(layerCollector.getAllEntries())
-        val layers = layerCollector.getSortedLayers()
+        val (allSortedLayers, initialCapIndices) = layerCollector.getSortedLayersAndCapIndices()
+        val capIndices = if (autoCategory.equals("JOYSTICK", ignoreCase = true)) {
+            if (initialCapIndices.isNotEmpty()) {
+                initialCapIndices
+            } else {
+                allSortedLayers.mapIndexedNotNull { index, layer ->
+                    when (layer) {
+                        is CanvasLayer.BoxLayer -> if (layer.widthRatio <= 0.65f && layer.heightRatio <= 0.65f) index else null
+                        is CanvasLayer.GradientShape -> if (layer.widthRatio <= 0.65f && layer.heightRatio <= 0.65f) index else null
+                        is CanvasLayer.CenterGlyph -> index
+                        is CanvasLayer.TextLayer -> index
+                        else -> null
+                    }
+                }
+            }
+        } else emptyList()
 
         return NxprcDocument(
             manifest = NxprcManifest(
@@ -705,9 +725,10 @@ object NxprcCompiler {
             canvas = NxprcCanvas(
                 viewBoxWidth = buttonWidth,
                 viewBoxHeight = buttonHeight,
-                layers = layers,
+                layers = allSortedLayers,
                 clipToBounds = clipToBounds,
-                canvasOutsets = totalCanvasOutsets
+                canvasOutsets = totalCanvasOutsets,
+                capLayerIndices = capIndices
             ),
             animations = NxprcAnimations(
                 idleType = idleType,

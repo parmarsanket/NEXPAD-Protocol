@@ -1604,6 +1604,7 @@ LINE TWO</button>
         assertEquals(420f, doc.manifest.springPhysics.stiffness, 0.1f)
         assertEquals(0.92f, doc.manifest.springPhysics.pressedScale, 0.01f)
         assertTrue(doc.canvas.layers.isNotEmpty(), "Joystick must produce canvas draw layers")
+        assertTrue(doc.canvas.capLayerIndices.isNotEmpty(), "Joystick must partition movable thumb cap layers")
 
         // Encode to binary and decode back
         val bytes = NxprcDocument.encodeToBytes(doc)
@@ -1618,6 +1619,7 @@ LINE TWO</button>
         assertEquals(420f, decoded.manifest.springPhysics.stiffness, 0.1f)
         assertEquals(0.92f, decoded.manifest.springPhysics.pressedScale, 0.01f)
         assertEquals(doc.canvas.layers.size, decoded.canvas.layers.size)
+        assertEquals(doc.canvas.capLayerIndices, decoded.canvas.capLayerIndices, "Cap layer indices must survive binary serialization")
     }
 }
 

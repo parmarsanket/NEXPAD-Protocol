@@ -15,6 +15,31 @@ import com.sanket.tools.nexpad.nxprc.engine.parsers.*
  */
 internal object DomTreeCompiler {
 
+    fun isNodeThumbCap(node: DomNode, category: String): Boolean {
+        if (!category.equals("JOYSTICK", ignoreCase = true)) return false
+        val classOrId = (node.classNames + listOfNotNull(node.id)).joinToString(" ").lowercase()
+        val isExplicitBase = classOrId.contains("base") || classOrId.contains("bezel") || classOrId.contains("chassis") ||
+                classOrId.contains("housing") || classOrId.contains("outer") || classOrId.contains("ring") ||
+                classOrId.contains("socket") || classOrId.contains("tick") || classOrId.contains("axis") ||
+                classOrId.contains("marker") || classOrId.contains("node") || classOrId.contains("guide")
+        if (isExplicitBase) return false
+
+        val isExplicitCap = classOrId.contains("thumb") || classOrId.contains("cap") || classOrId.contains("dome") ||
+                classOrId.contains("knob") || classOrId.contains("grip") || classOrId.contains("core") ||
+                classOrId.contains("stick-label") || classOrId.contains("star") || classOrId.contains("emblem") ||
+                classOrId.contains("glyph")
+        if (isExplicitCap) return true
+
+        var ancestor = node.parent
+        while (ancestor != null && !ancestor.tag.equals("button", ignoreCase = true)) {
+            val aClass = (ancestor.classNames + listOfNotNull(ancestor.id)).joinToString(" ").lowercase()
+            if (aClass.contains("thumb") || aClass.contains("cap") || aClass.contains("dome") || aClass.contains("knob")) return true
+            if (aClass.contains("base") || aClass.contains("socket") || aClass.contains("bezel")) return false
+            ancestor = ancestor.parent
+        }
+        return false
+    }
+
     /**
      * Recursively traverses and compiles children of [parentNode] into canvas layers,
      * computing absolute global canvas coordinates, flexbox positioning, and CSS stacking order.
@@ -37,7 +62,8 @@ internal object DomTreeCompiler {
         surfaceSvgNode: DomNode? = null,
         svgFilters: Map<String, ParsedSvgFilter> = emptyMap(),
         styleCache: MutableMap<DomNode, com.sanket.tools.nexpad.nxprc.engine.css.ComputedElementStyle>? = null,
-        resolvedNodeBounds: MutableMap<DomNode, ComputedBoxBounds>? = null
+        resolvedNodeBounds: MutableMap<DomNode, ComputedBoxBounds>? = null,
+        category: String = "BUTTON"
     ) {
         val parentStyle = CssCascadeResolver.computeStyle(parentNode, stylesheet, styleCache).base
         val childBoundsMap = FlexLayoutEngine.layoutFlexContainerChildren(
@@ -50,6 +76,7 @@ internal object DomTreeCompiler {
         )
 
         fun compilePseudoElement(
+            node: DomNode,
             parentStyle: Map<String, String>,
             pseudoStyle: Map<String, String>?,
             isBefore: Boolean,
@@ -141,13 +168,15 @@ internal object DomTreeCompiler {
                     opacity = pOpacity,
                     transform = pTransform
                 )
-                layerCollector.addLayer(pStack, box)
+                val isPseudoCap = isNodeThumbCap(node, category)
+                layerCollector.addLayer(pStack, box, isThumbCap = isPseudoCap)
             }
         }
 
         for (child in parentNode.children) {
             val childComputed = CssCascadeResolver.computeStyle(child, stylesheet, styleCache)
             val childStyle = childComputed.base
+            val isChildCap = isNodeThumbCap(child, category)
 
             val bounds = childBoundsMap[child] ?: run {
                 val raw = GeometryParser.computeBoxBounds(childStyle, parentWidth, parentHeight)
@@ -170,7 +199,7 @@ internal object DomTreeCompiler {
             val cFilter = FilterParser.parse(childStyle["filter"] ?: child.attributes["filter"], svgFilters)
 
             val childZ = GeometryParser.parseZIndex(childStyle)
-            val childStack = parentStackBase + childZ * 10
+            val childStack = parentStackBase + 10 + childZ * 10
 
             // If child is an SVG element, extract its shapes directly into VectorPath layers
             if (child.tag.equals("svg", ignoreCase = true)) {
@@ -192,7 +221,8 @@ internal object DomTreeCompiler {
                                 offsetXRatio = offX,
                                 offsetYRatio = offY,
                                 scale = scale
-                            )
+                            ),
+                            isThumbCap = isChildCap
                         )
                     }
                 }
@@ -256,11 +286,12 @@ internal object DomTreeCompiler {
                     opacity = cOpacity,
                     transform = cTransform
                 )
-                layerCollector.addLayer(childStack, box)
+                layerCollector.addLayer(childStack, box, isThumbCap = isChildCap)
             }
 
             // Compile child ::before pseudo-element
             compilePseudoElement(
+                node = child,
                 parentStyle = childStyle,
                 pseudoStyle = childComputed.before,
                 isBefore = true,
@@ -314,7 +345,8 @@ internal object DomTreeCompiler {
                                     maxLines = 1,
                                     lineHeightSp = lineResult.lineHeight,
                                     textAlign = tAlign
-                                )
+                                ),
+                                isThumbCap = isChildCap
                             )
                         }
                     }
@@ -337,7 +369,8 @@ internal object DomTreeCompiler {
                             maxLines = 1,
                             lineHeightSp = lineResult.lineHeight,
                             textAlign = tAlign
-                        )
+                        ),
+                        isThumbCap = isChildCap
                     )
                 }
             }
@@ -361,12 +394,14 @@ internal object DomTreeCompiler {
                     surfaceSvgNode = surfaceSvgNode,
                     svgFilters = svgFilters,
                     styleCache = styleCache,
-                    resolvedNodeBounds = resolvedNodeBounds
+                    resolvedNodeBounds = resolvedNodeBounds,
+                    category = category
                 )
             }
 
             // Compile child ::after pseudo-element
             compilePseudoElement(
+                node = child,
                 parentStyle = childStyle,
                 pseudoStyle = childComputed.after,
                 isBefore = false,

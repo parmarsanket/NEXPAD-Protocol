@@ -84,7 +84,8 @@ data class NxprcCanvas(
     val viewBoxHeight: Float = 100f,
     val layers: List<CanvasLayer> = emptyList(),
     val clipToBounds: Boolean = false,
-    val canvasOutsets: LayerOutsets = LayerOutsets()
+    val canvasOutsets: LayerOutsets = LayerOutsets(),
+    val capLayerIndices: List<Int> = emptyList()
 )
 
 @Serializable
