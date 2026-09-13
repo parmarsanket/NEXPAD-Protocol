@@ -333,7 +333,7 @@ internal object FlexLayoutEngine {
                     "flex-end" -> (if (isColumn) parentHeight - pBottom - lineTotalMain else parentWidth - pRight - lineTotalMain)
                     "space-around" -> (if (isColumn) pTop else pLeft) + (lineAvailMain / (line.size * 2f))
                     "space-evenly" -> (if (isColumn) pTop else pLeft) + (lineAvailMain / (line.size + 1f))
-                    else -> if (isColumn) pLeft else pTop
+                    else -> if (isColumn) pTop else pLeft
                 }
 
                 val extraSpacing = when (justify) {

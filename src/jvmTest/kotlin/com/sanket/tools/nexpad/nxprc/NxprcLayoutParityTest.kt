@@ -656,4 +656,89 @@ class NxprcLayoutParityTest {
         val compiled = NxprcCompiler.compile(html, id = "rc.test_nested", name = "Test Nested")
         assertTrue(compiled.canvas.layers.isNotEmpty())
     }
+
+    // ---------------------------------------------------------------------------------------------
+    // Test Group P: Regression test for flex-direction: column, flex-wrap: wrap with default justify-content
+    // ---------------------------------------------------------------------------------------------
+
+    @Test
+    fun testGroupP_ColumnWrapWithDefaultJustifyAndAsymmetricPadding() {
+        val html = """
+            <style>
+              .wrap-col-container {
+                display: flex;
+                flex-direction: column;
+                flex-wrap: wrap;
+                padding: 15px 20px 25px 30px;
+                gap: 10px;
+                width: 200px;
+                height: 100px;
+              }
+              .box-a {
+                width: 40px;
+                height: 35px;
+              }
+              .box-b {
+                width: 40px;
+                height: 35px;
+              }
+              .box-c {
+                width: 40px;
+                height: 15px;
+              }
+            </style>
+            <div class="wrap-col-container">
+              <div class="box-a"></div>
+              <div class="box-b"></div>
+              <div class="box-c"></div>
+            </div>
+        """.trimIndent()
+
+        val parsed = HtmlDomParser.parse(html)
+        val rootNode = parsed.root
+        val stylesheet = CssTokenizer.parse(parsed.embeddedCss)
+
+        val containerNode = rootNode.findFirst { it.classNames.contains("wrap-col-container") }!!
+        val boxA = containerNode.findFirst { it.classNames.contains("box-a") }!!
+        val boxB = containerNode.findFirst { it.classNames.contains("box-b") }!!
+        val boxC = containerNode.findFirst { it.classNames.contains("box-c") }!!
+
+        val containerStyle = mapOf(
+            "display" to "flex",
+            "flex-direction" to "column",
+            "flex-wrap" to "wrap",
+            "padding" to "15px 20px 25px 30px",
+            "gap" to "10px",
+            "width" to "200px",
+            "height" to "100px"
+        )
+
+        val boundsMap = FlexLayoutEngine.layoutFlexContainerChildren(
+            parentNode = containerNode,
+            parentStyle = containerStyle,
+            stylesheet = stylesheet,
+            parentWidth = 200f,
+            parentHeight = 100f
+        )
+
+        val boundsA = boundsMap[boxA]!!
+        val boundsB = boundsMap[boxB]!!
+        val boundsC = boundsMap[boxC]!!
+
+        // Line 1: box-a starts at pTop (15px) and pLeft (30px)
+        assertEquals(30f, boundsA.left, 0.001f, "Line 1 cross axis must start at pLeft (30px)")
+        assertEquals(15f, boundsA.top, 0.001f, "Line 1 main axis must start at pTop (15px), not pLeft")
+
+        // Line 2: box-b wraps to next column line:
+        // cross = pLeft (30px) + line1 width (40px) + gap (10px) = 80px
+        // main starts at pTop (15px)
+        assertEquals(80f, boundsB.left, 0.001f, "Line 2 cross axis must start at pLeft + lineCross + gap (80px)")
+        assertEquals(15f, boundsB.top, 0.001f, "Line 2 main axis must start at pTop (15px), not pLeft")
+
+        // Line 2: box-c follows box-b in line 2:
+        // cross = 80px
+        // main = 15px + 35px + 10px = 60px
+        assertEquals(80f, boundsC.left, 0.001f, "Line 2 second item cross axis must match line (80px)")
+        assertEquals(60f, boundsC.top, 0.001f, "Line 2 second item main axis must advance from pTop")
+    }
 }
