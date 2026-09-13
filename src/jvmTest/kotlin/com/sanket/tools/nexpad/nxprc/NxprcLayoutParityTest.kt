@@ -2,9 +2,12 @@ package com.sanket.tools.nexpad.nxprc
 
 import com.sanket.tools.nexpad.nxprc.engine.compiler.FlexLayoutEngine
 import com.sanket.tools.nexpad.nxprc.engine.compiler.NxprcCompiler
+import com.sanket.tools.nexpad.nxprc.engine.css.CssCascadeResolver
+import com.sanket.tools.nexpad.nxprc.engine.css.CssSelectorParser
 import com.sanket.tools.nexpad.nxprc.engine.css.CssTokenizer
 import com.sanket.tools.nexpad.nxprc.engine.dom.HtmlDomParser
 import com.sanket.tools.nexpad.nxprc.engine.parsers.ComputedBoxBounds
+import com.sanket.tools.nexpad.nxprc.engine.parsers.GeometryParser
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -455,5 +458,202 @@ class NxprcLayoutParityTest {
         // 3. Verify compilation to binary document succeeds
         val compiled = NxprcCompiler.compile(html, id = "rc.hulk_test", name = "Hulk Test")
         assertTrue(compiled.canvas.layers.isNotEmpty(), "Compiled document must contain layers")
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Test Group L: BUG-001 - position: relative preserves flex flow and applies visual shift
+    // ---------------------------------------------------------------------------------------------
+
+    @Test
+    fun testBUG001_PositionRelativeInFlexFlowWithVisualShift() {
+        val html = """
+            <style>
+              .container {
+                display: flex;
+                flex-direction: row;
+                gap: 10px;
+                width: 200px;
+                height: 50px;
+              }
+              .box1 {
+                width: 30px;
+                height: 30px;
+              }
+              .box2-relative {
+                position: relative;
+                left: 4px;
+                top: 2px;
+                width: 30px;
+                height: 30px;
+              }
+              .box3 {
+                width: 30px;
+                height: 30px;
+              }
+            </style>
+            <div class="container">
+              <div class="box1"></div>
+              <div class="box2-relative"></div>
+              <div class="box3"></div>
+            </div>
+        """.trimIndent()
+
+        val parsed = HtmlDomParser.parse(html)
+        val rootNode = parsed.root
+        val stylesheet = CssTokenizer.parse(parsed.embeddedCss)
+
+        val containerNode = rootNode.findFirst { it.classNames.contains("container") }!!
+        val b1 = containerNode.findFirst { it.classNames.contains("box1") }!!
+        val b2 = containerNode.findFirst { it.classNames.contains("box2-relative") }!!
+        val b3 = containerNode.findFirst { it.classNames.contains("box3") }!!
+
+        val containerStyle = mapOf(
+            "display" to "flex",
+            "flex-direction" to "row",
+            "gap" to "10px",
+            "width" to "200px",
+            "height" to "50px"
+        )
+
+        val boundsMap = FlexLayoutEngine.layoutFlexContainerChildren(
+            parentNode = containerNode,
+            parentStyle = containerStyle,
+            stylesheet = stylesheet,
+            parentWidth = 200f,
+            parentHeight = 50f
+        )
+
+        val bounds1 = boundsMap[b1]!!
+        val bounds2 = boundsMap[b2]!!
+        val bounds3 = boundsMap[b3]!!
+
+        // Box 1: In-flow at slot 0: left = 0, top = 0
+        assertEquals(0f, bounds1.left, 0.001f)
+        assertEquals(0f, bounds1.top, 0.001f)
+
+        // Box 2: In-flow at slot 1 (30px + 10px = 40px), with visual shift (+4px, +2px) -> left = 44, top = 2
+        assertEquals(44f, bounds2.left, 0.001f, "Relative child must have visual offset added to in-flow slot")
+        assertEquals(2f, bounds2.top, 0.001f, "Relative child must have visual offset added to in-flow slot")
+
+        // Box 3: In-flow at slot 2: slot position is untouched by Box 2's relative shift!
+        // Slot 2 = slot 1 (40px) + Box 2 width (30px) + gap (10px) = 80px
+        assertEquals(80f, bounds3.left, 0.001f, "Subsequent in-flow sibling must NOT be shifted by relative child's visual offset")
+        assertEquals(0f, bounds3.top, 0.001f)
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Test Group M: BUG-002 - Compound Selector Specificity Accumulation (W3C Standard)
+    // ---------------------------------------------------------------------------------------------
+
+    @Test
+    fun testBUG002_SpecificityAdditiveTagClassIdCompound() {
+        val selDivCard = CssSelectorParser.parse("div.card")
+        assertEquals(11, selDivCard.specificity, "div.card specificity must be 1 (tag) + 10 (class) = 11")
+
+        val selCard = CssSelectorParser.parse(".card")
+        assertEquals(10, selCard.specificity, ".card specificity must be 10 (class)")
+
+        val selCompound = CssSelectorParser.parse("button#action.primary.large")
+        // 1 (tag) + 100 (id) + 20 (2 classes) = 121
+        assertEquals(121, selCompound.specificity, "button#action.primary.large specificity must be 121")
+
+        // Test cascade: even if .card appears AFTER div.card in the CSS, div.card (11) wins over .card (10)
+        val html = """
+            <style>
+              div.card { color: #0000FF; }
+              .card { color: #FF0000; }
+            </style>
+            <div class="card"></div>
+        """.trimIndent()
+        val parsed = HtmlDomParser.parse(html)
+        val stylesheet = CssTokenizer.parse(parsed.embeddedCss)
+        val cardNode = parsed.root.findFirst { it.classNames.contains("card") }!!
+        val style = CssCascadeResolver.computeStyle(cardNode, stylesheet)
+        assertEquals("#0000FF", style.base["color"], "Higher specificity compound selector (11) must beat class selector (10)")
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Test Group N: BUG-003 - Auto vs Explicit Constraint Resolution in computeBoxBounds
+    // ---------------------------------------------------------------------------------------------
+
+    @Test
+    fun testBUG003_ComputeBoxBoundsAutoVsExplicitDistinction() {
+        // Child with right: 20px, left: auto (or omitted)
+        val styleRightOnly = mapOf(
+            "position" to "absolute",
+            "right" to "20px",
+            "width" to "30px",
+            "height" to "40px"
+        )
+        val boundsRight = GeometryParser.computeBoxBounds(styleRightOnly, 100f, 100f)
+        // 100 - 20 - 30 = 50
+        assertEquals(50f, boundsRight.left, 0.001f, "Omitted left must resolve via right constraint")
+
+        // Child with explicit left: auto should not be treated as 0px
+        val styleLeftAuto = mapOf(
+            "position" to "absolute",
+            "left" to "auto",
+            "right" to "20px",
+            "width" to "30px",
+            "height" to "40px"
+        )
+        val boundsLeftAuto = GeometryParser.computeBoxBounds(styleLeftAuto, 100f, 100f)
+        assertEquals(50f, boundsLeftAuto.left, 0.001f, "left: auto must resolve via right constraint, not 0px")
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Test Group O: ARCH-001 & PERF-001 - Text Node Global Centering & Style Caching
+    // ---------------------------------------------------------------------------------------------
+
+    @Test
+    fun testARCH001_PERF001_TextNodeGlobalCenterAndCaching() {
+        val html = """
+            <style>
+              .btn {
+                position: relative;
+                width: 100px;
+                height: 100px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+              }
+              .inner {
+                width: 60px;
+                height: 60px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+              }
+              .lbl {
+                font-size: 16px;
+                color: #FFFFFF;
+              }
+            </style>
+            <button class="btn">
+              <div class="inner">
+                <span class="lbl">OK</span>
+              </div>
+            </button>
+        """.trimIndent()
+
+        val parsed = HtmlDomParser.parse(html)
+        val stylesheet = CssTokenizer.parse(parsed.embeddedCss)
+        val btnNode = parsed.root.findFirst { it.classNames.contains("btn") }!!
+        val lblNode = parsed.root.findFirst { it.classNames.contains("lbl") }!!
+
+        // Test style cache hit
+        val cache = mutableMapOf<com.sanket.tools.nexpad.nxprc.engine.dom.DomNode, com.sanket.tools.nexpad.nxprc.engine.css.ComputedElementStyle>()
+        val style1 = CssCascadeResolver.computeStyle(btnNode, stylesheet, cache)
+        val style2 = CssCascadeResolver.computeStyle(btnNode, stylesheet, cache)
+        assertTrue(style1 === style2, "Repeated computeStyle with cache must return identical instance")
+
+        // Test global center resolution
+        val center = FlexLayoutEngine.computeNodeGlobalCenter(lblNode, btnNode, stylesheet, 100f, 100f, cache)
+        assertEquals(50f, center.first, 0.01f, "Nested text center X must be 50")
+        assertEquals(50f, center.second, 0.01f, "Nested text center Y must be 50")
+
+        // Test compilation succeeds end-to-end with the threaded bounds
+        val compiled = NxprcCompiler.compile(html, id = "rc.test_nested", name = "Test Nested")
+        assertTrue(compiled.canvas.layers.isNotEmpty())
     }
 }

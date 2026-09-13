@@ -82,15 +82,12 @@ object CssSelectorParser {
             val sub = parts[1].split(".", limit = 2)
             id = sub[0].trim()
             if (sub.size > 1) className = sub[1].trim()
-            specificity += 100
         } else if (s.contains(".")) {
             val parts = s.split(".", limit = 2)
             if (parts[0].isNotBlank()) tag = parts[0].trim().lowercase()
             className = parts[1].trim()
-            specificity += 10
         } else if (s.isNotBlank() && s != "*") {
             tag = s.trim().lowercase()
-            specificity += 1
         }
 
         val parsedClasses = CLASS_REGEX
@@ -99,9 +96,16 @@ object CssSelectorParser {
             .toList()
         if (parsedClasses.isNotEmpty()) {
             className = parsedClasses.first()
-            specificity += 10 * (parsedClasses.size - 1)
         }
 
+        // Strictly additive CSS specificity accumulation (W3C standard)
+        if (id != null) specificity += 100
+        if (parsedClasses.isNotEmpty()) {
+            specificity += 10 * parsedClasses.size
+        } else if (className != null) {
+            specificity += 10
+        }
+        if (tag != null && tag != "*") specificity += 1
         if (pseudoEl != null) specificity += 1
         if (pseudoCl != null) specificity += 10
 

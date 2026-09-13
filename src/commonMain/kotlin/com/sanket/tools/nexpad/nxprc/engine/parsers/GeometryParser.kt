@@ -93,7 +93,7 @@ object GeometryParser {
     }
 
     fun computeBoxBounds(style: Map<String, String>, parentW: Float, parentH: Float): ComputedBoxBounds {
-        val inset = parseInset(style["inset"], parentW, parentH)
+        val constraints = extractPositionConstraints(style, parentW, parentH)
 
         val explicitWidth = style["width"]?.let { parsePixelOrPercent(it, parentW, parentW) }
         val explicitHeight = style["height"]?.let { parsePixelOrPercent(it, parentH, parentH) }
@@ -106,10 +106,9 @@ object GeometryParser {
 
         var width = when {
             explicitWidth != null -> explicitWidth
-            inset != null -> (parentW - inset.left - inset.right).coerceAtLeast(0f)
-            style["left"] != null && style["right"] != null -> {
-                val l = parsePixelOrPercent(style["left"], parentW, 0f)
-                val r = parsePixelOrPercent(style["right"], parentW, 0f)
+            constraints.left.isExplicit && constraints.right.isExplicit -> {
+                val l = constraints.left.resolve(parentW) ?: 0f
+                val r = constraints.right.resolve(parentW) ?: 0f
                 (parentW - l - r).coerceAtLeast(0f)
             }
             else -> parentW
@@ -117,10 +116,9 @@ object GeometryParser {
 
         var height = when {
             explicitHeight != null -> explicitHeight
-            inset != null -> (parentH - inset.top - inset.bottom).coerceAtLeast(0f)
-            style["top"] != null && style["bottom"] != null -> {
-                val t = parsePixelOrPercent(style["top"], parentH, 0f)
-                val b = parsePixelOrPercent(style["bottom"], parentH, 0f)
+            constraints.top.isExplicit && constraints.bottom.isExplicit -> {
+                val t = constraints.top.resolve(parentH) ?: 0f
+                val b = constraints.bottom.resolve(parentH) ?: 0f
                 (parentH - t - b).coerceAtLeast(0f)
             }
             else -> parentH
@@ -132,16 +130,14 @@ object GeometryParser {
         }
 
         val left = when {
-            style["left"] != null -> parsePixelOrPercent(style["left"], parentW, 0f)
-            inset != null -> inset.left
-            style["right"] != null -> parentW - parsePixelOrPercent(style["right"], parentW, 0f) - width
+            constraints.left.isExplicit -> constraints.left.resolve(parentW) ?: 0f
+            constraints.right.isExplicit -> (parentW - (constraints.right.resolve(parentW) ?: 0f) - width)
             else -> 0f
         }
 
         val top = when {
-            style["top"] != null -> parsePixelOrPercent(style["top"], parentH, 0f)
-            inset != null -> inset.top
-            style["bottom"] != null -> parentH - parsePixelOrPercent(style["bottom"], parentH, 0f) - height
+            constraints.top.isExplicit -> constraints.top.resolve(parentH) ?: 0f
+            constraints.bottom.isExplicit -> (parentH - (constraints.bottom.resolve(parentH) ?: 0f) - height)
             else -> 0f
         }
 

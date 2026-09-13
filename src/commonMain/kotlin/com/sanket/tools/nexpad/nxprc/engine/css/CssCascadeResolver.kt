@@ -16,7 +16,16 @@ data class ComputedElementStyle(
  */
 object CssCascadeResolver {
 
-    fun computeStyle(node: DomNode, stylesheet: CssStylesheet): ComputedElementStyle {
+    fun computeStyle(
+        node: DomNode,
+        stylesheet: CssStylesheet,
+        cache: MutableMap<DomNode, ComputedElementStyle>? = null
+    ): ComputedElementStyle {
+        if (cache != null) {
+            val cached = cache[node]
+            if (cached != null) return cached
+        }
+
         val baseRules = mutableListOf<Pair<Int, Map<String, String>>>()
         val activeRules = mutableListOf<Pair<Int, Map<String, String>>>()
         val hoverRules = mutableListOf<Pair<Int, Map<String, String>>>()
@@ -52,7 +61,7 @@ object CssCascadeResolver {
         val finalAfter = if (afterRules.isNotEmpty()) mergeDeclarations(afterRules) else null
 
         // Resolve CSS Variables: var(--name, fallback)
-        return ComputedElementStyle(
+        val result = ComputedElementStyle(
             base = CssVariableResolver.resolveVariables(finalBase, stylesheet.customProperties),
             active = CssVariableResolver.resolveVariables(finalActive, stylesheet.customProperties),
             hover = CssVariableResolver.resolveVariables(finalHover, stylesheet.customProperties),
@@ -60,6 +69,8 @@ object CssCascadeResolver {
             before = finalBefore?.let { CssVariableResolver.resolveVariables(it, stylesheet.customProperties) },
             after = finalAfter?.let { CssVariableResolver.resolveVariables(it, stylesheet.customProperties) }
         )
+        cache?.put(node, result)
+        return result
     }
 
     fun matchesNode(node: DomNode, sel: CssSelector): Boolean {

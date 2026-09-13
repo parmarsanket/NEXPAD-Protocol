@@ -33,41 +33,6 @@ internal object FlexLayoutEngine {
 
         val constraints = GeometryParser.extractPositionConstraints(childStyle, parentWidth, parentHeight)
 
-        // If both horizontal and vertical offsets are explicitly constrained, static positioning is bypassed
-        if (constraints.hasExplicitHorizontal && constraints.hasExplicitVertical) {
-            val resolvedLeft = when {
-                constraints.left.isExplicit && constraints.right.isExplicit -> {
-                    val l = constraints.left.resolve(parentWidth) ?: 0f
-                    val r = constraints.right.resolve(parentWidth) ?: 0f
-                    val isMarginAuto = childStyle["margin"]?.contains("auto") == true || childStyle["margin-left"] == "auto"
-                    if (isMarginAuto) {
-                        l + (parentWidth - l - r - rawBounds.width).coerceAtLeast(0f) / 2f
-                    } else {
-                        l
-                    }
-                }
-                constraints.left.isExplicit -> constraints.left.resolve(parentWidth) ?: 0f
-                constraints.right.isExplicit -> (parentWidth - (constraints.right.resolve(parentWidth) ?: 0f) - rawBounds.width)
-                else -> rawBounds.left
-            }
-            val resolvedTop = when {
-                constraints.top.isExplicit && constraints.bottom.isExplicit -> {
-                    val t = constraints.top.resolve(parentHeight) ?: 0f
-                    val b = constraints.bottom.resolve(parentHeight) ?: 0f
-                    val isMarginAuto = childStyle["margin"]?.contains("auto") == true || childStyle["margin-top"] == "auto"
-                    if (isMarginAuto) {
-                        t + (parentHeight - t - b - rawBounds.height).coerceAtLeast(0f) / 2f
-                    } else {
-                        t
-                    }
-                }
-                constraints.top.isExplicit -> constraints.top.resolve(parentHeight) ?: 0f
-                constraints.bottom.isExplicit -> (parentHeight - (constraints.bottom.resolve(parentHeight) ?: 0f) - rawBounds.height)
-                else -> rawBounds.top
-            }
-            return rawBounds.copy(left = resolvedLeft, top = resolvedTop)
-        }
-
         // Flex container padding
         val pad = GeometryParser.parseInset(parentStyle["padding"], parentWidth, parentHeight)
         val pTop = GeometryParser.parsePixelOrPercent(parentStyle["padding-top"], parentHeight, pad?.top ?: 0f)
@@ -161,18 +126,27 @@ internal object FlexLayoutEngine {
         return rawBounds.copy(left = resolvedLeft, top = resolvedTop)
     }
 
-    /**
-     * Backward-compatible delegate for existing callers.
-     */
-    fun resolveFlexChildBounds(
-        parentStyle: Map<String, String>,
+    private fun applyRelativeOffset(
         childStyle: Map<String, String>,
-        rawBounds: ComputedBoxBounds,
+        cLeft: Float,
+        cTop: Float,
         parentWidth: Float,
-        parentHeight: Float,
-        allowAbsoluteFlexAlignment: Boolean = false
-    ): ComputedBoxBounds {
-        return resolvePositionedChildBounds(parentStyle, childStyle, rawBounds, parentWidth, parentHeight)
+        parentHeight: Float
+    ): Pair<Float, Float> {
+        val position = childStyle["position"]?.trim()?.lowercase()
+        if (position != "relative") return cLeft to cTop
+        val constraints = GeometryParser.extractPositionConstraints(childStyle, parentWidth, parentHeight)
+        val finalLeft = when {
+            constraints.left.isExplicit -> cLeft + (constraints.left.resolve(parentWidth) ?: 0f)
+            constraints.right.isExplicit -> cLeft - (constraints.right.resolve(parentWidth) ?: 0f)
+            else -> cLeft
+        }
+        val finalTop = when {
+            constraints.top.isExplicit -> cTop + (constraints.top.resolve(parentHeight) ?: 0f)
+            constraints.bottom.isExplicit -> cTop - (constraints.bottom.resolve(parentHeight) ?: 0f)
+            else -> cTop
+        }
+        return finalLeft to finalTop
     }
 
     /**
@@ -185,13 +159,14 @@ internal object FlexLayoutEngine {
         parentStyle: Map<String, String>,
         stylesheet: CssStylesheet,
         parentWidth: Float,
-        parentHeight: Float
+        parentHeight: Float,
+        styleCache: MutableMap<DomNode, com.sanket.tools.nexpad.nxprc.engine.css.ComputedElementStyle>? = null
     ): Map<DomNode, ComputedBoxBounds> {
         val result = mutableMapOf<DomNode, ComputedBoxBounds>()
         val children = parentNode.children
         if (parentStyle["display"]?.trim()?.lowercase() != "flex") {
             for (child in children) {
-                val childStyle = CssCascadeResolver.computeStyle(child, stylesheet).base
+                val childStyle = CssCascadeResolver.computeStyle(child, stylesheet, styleCache).base
                 result[child] = GeometryParser.computeBoxBounds(childStyle, parentWidth, parentHeight)
             }
             return result
@@ -215,12 +190,12 @@ internal object FlexLayoutEngine {
         val inFlowList = mutableListOf<Pair<DomNode, ComputedBoxBounds>>()
 
         for (child in children) {
-            val childStyle = CssCascadeResolver.computeStyle(child, stylesheet).base
-            val isAbsolute = childStyle["position"]?.trim()?.lowercase() == "absolute" ||
-                    childStyle.keys.any { it == "inset" || it == "left" || it == "right" || it == "top" || it == "bottom" }
+            val childStyle = CssCascadeResolver.computeStyle(child, stylesheet, styleCache).base
+            val position = childStyle["position"]?.trim()?.lowercase()
+            val isOutOfFlow = position == "absolute" || position == "fixed"
             val rawBounds = GeometryParser.computeBoxBounds(childStyle, parentWidth, parentHeight)
 
-            if (isAbsolute) {
+            if (isOutOfFlow) {
                 result[child] = resolvePositionedChildBounds(parentStyle, childStyle, rawBounds, parentWidth, parentHeight)
             } else {
                 var w = rawBounds.width
@@ -305,7 +280,9 @@ internal object FlexLayoutEngine {
                     left to top
                 }
 
-                result[child] = ComputedBoxBounds(cLeft, cTop, childW, childH)
+                val childStyle = CssCascadeResolver.computeStyle(child, stylesheet, styleCache).base
+                val (finalLeft, finalTop) = applyRelativeOffset(childStyle, cLeft, cTop, parentWidth, parentHeight)
+                result[child] = ComputedBoxBounds(finalLeft, finalTop, childW, childH)
             }
         } else {
             val maxMainSize = if (isColumn) (parentHeight - pTop - pBottom) else (parentWidth - pLeft - pRight)
@@ -356,7 +333,7 @@ internal object FlexLayoutEngine {
                     "flex-end" -> (if (isColumn) parentHeight - pBottom - lineTotalMain else parentWidth - pRight - lineTotalMain)
                     "space-around" -> (if (isColumn) pTop else pLeft) + (lineAvailMain / (line.size * 2f))
                     "space-evenly" -> (if (isColumn) pTop else pLeft) + (lineAvailMain / (line.size + 1f))
-                    else -> if (isColumn) pTop else pLeft
+                    else -> if (isColumn) pLeft else pTop
                 }
 
                 val extraSpacing = when (justify) {
@@ -390,7 +367,9 @@ internal object FlexLayoutEngine {
                         left to top
                     }
 
-                    result[child] = ComputedBoxBounds(cLeft, cTop, childW, childH)
+                    val childStyle = CssCascadeResolver.computeStyle(child, stylesheet, styleCache).base
+                    val (finalLeft, finalTop) = applyRelativeOffset(childStyle, cLeft, cTop, parentWidth, parentHeight)
+                    result[child] = ComputedBoxBounds(finalLeft, finalTop, childW, childH)
                 }
 
                 currentCross += lineCrossSize + gap
@@ -409,7 +388,8 @@ internal object FlexLayoutEngine {
         rootNode: DomNode,
         stylesheet: CssStylesheet,
         rootW: Float,
-        rootH: Float
+        rootH: Float,
+        styleCache: MutableMap<DomNode, com.sanket.tools.nexpad.nxprc.engine.css.ComputedElementStyle>? = null
     ): Pair<Float, Float> {
         if (node == rootNode) return Pair(rootW / 2f, rootH / 2f)
         val path = mutableListOf<DomNode>()
@@ -424,10 +404,10 @@ internal object FlexLayoutEngine {
         var pH = rootH
         var currentParent = rootNode
         for (elem in path) {
-            val parentStyle = CssCascadeResolver.computeStyle(currentParent, stylesheet).base
-            val flexBoundsMap = layoutFlexContainerChildren(currentParent, parentStyle, stylesheet, pW, pH)
+            val parentStyle = CssCascadeResolver.computeStyle(currentParent, stylesheet, styleCache).base
+            val flexBoundsMap = layoutFlexContainerChildren(currentParent, parentStyle, stylesheet, pW, pH, styleCache)
             val b = flexBoundsMap[elem] ?: run {
-                val elemStyle = CssCascadeResolver.computeStyle(elem, stylesheet).base
+                val elemStyle = CssCascadeResolver.computeStyle(elem, stylesheet, styleCache).base
                 val raw = GeometryParser.computeBoxBounds(elemStyle, pW, pH)
                 resolvePositionedChildBounds(parentStyle, elemStyle, raw, pW, pH)
             }

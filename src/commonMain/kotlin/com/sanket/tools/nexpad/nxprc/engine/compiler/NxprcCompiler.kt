@@ -26,9 +26,12 @@ object NxprcCompiler {
         // 0. Extract SVG Filter Graph Definitions
         val svgFilters = SvgFilterParser.parseFilterMap(parsed.root)
 
+        val styleCache = mutableMapOf<com.sanket.tools.nexpad.nxprc.engine.dom.DomNode, com.sanket.tools.nexpad.nxprc.engine.css.ComputedElementStyle>()
+        val resolvedNodeBounds = mutableMapOf<com.sanket.tools.nexpad.nxprc.engine.dom.DomNode, ComputedBoxBounds>()
+
         // 1. Find the Primary Gamepad Button Node
         val primaryNode = ButtonNodeSelector.findPrimaryButtonNode(parsed.root, stylesheet)
-        val style = CssCascadeResolver.computeStyle(primaryNode, stylesheet)
+        val style = CssCascadeResolver.computeStyle(primaryNode, stylesheet, styleCache)
 
         val layerCollector = LayerCollector()
 
@@ -38,6 +41,7 @@ object NxprcCompiler {
 
         val buttonWidth = GeometryParser.parsePixelOrPercent(baseProps["width"], 100f, 100f).coerceAtLeast(1f)
         val buttonHeight = GeometryParser.parsePixelOrPercent(baseProps["height"], 100f, 100f).coerceAtLeast(1f)
+        resolvedNodeBounds[primaryNode] = ComputedBoxBounds(0f, 0f, buttonWidth, buttonHeight)
         val baseOpacity = baseProps["opacity"]?.toFloatOrNull() ?: 1.0f
         val baseFilter = FilterParser.parse(baseProps["filter"] ?: primaryNode.attributes["filter"], svgFilters)
 
@@ -333,7 +337,9 @@ object NxprcCompiler {
             textNode = textNode,
             allTextNodes = allTextNodes,
             hasSurfaceSvg = hasSurfaceSvg,
-            svgFilters = svgFilters
+            svgFilters = svgFilters,
+            styleCache = styleCache,
+            resolvedNodeBounds = resolvedNodeBounds
         )
 
         // 6. ::after: Top specular arc gloss & glass reflection edge
@@ -438,7 +444,7 @@ object NxprcCompiler {
         // 7. Center Text Label (Embossed 3D + Glow Text Shadows)
         var centerGlyphAdded = false
         if (textNode != null) {
-            val textStyle = CssCascadeResolver.computeStyle(textNode, stylesheet).base
+            val textStyle = CssCascadeResolver.computeStyle(textNode, stylesheet, styleCache).base
             if (ButtonNodeSelector.isVisible(textStyle)) {
                 val text = textNode.findFirstText() ?: defaultControl
                 val textOpacity = textStyle["opacity"]?.toFloatOrNull() ?: baseOpacity
@@ -458,7 +464,12 @@ object NxprcCompiler {
                 val textZ = GeometryParser.parseZIndex(textStyle)
                 val textStack = 200 + textZ * 10
 
-                val (tcX, tcY) = FlexLayoutEngine.computeNodeGlobalCenter(textNode, primaryNode, stylesheet, buttonWidth, buttonHeight)
+                val textBounds = resolvedNodeBounds[textNode]
+                val (tcX, tcY) = if (textBounds != null) {
+                    Pair(textBounds.left + textBounds.width / 2f, textBounds.top + textBounds.height / 2f)
+                } else {
+                    FlexLayoutEngine.computeNodeGlobalCenter(textNode, primaryNode, stylesheet, buttonWidth, buttonHeight, styleCache)
+                }
                 val offXRatio = (tcX - buttonWidth / 2f) / buttonWidth
                 val offYRatio = (tcY - buttonHeight / 2f) / buttonHeight
 

@@ -35,15 +35,18 @@ internal object DomTreeCompiler {
         textNode: DomNode?,
         allTextNodes: List<DomNode>,
         hasSurfaceSvg: Boolean = false,
-        svgFilters: Map<String, ParsedSvgFilter> = emptyMap()
+        svgFilters: Map<String, ParsedSvgFilter> = emptyMap(),
+        styleCache: MutableMap<DomNode, com.sanket.tools.nexpad.nxprc.engine.css.ComputedElementStyle>? = null,
+        resolvedNodeBounds: MutableMap<DomNode, ComputedBoxBounds>? = null
     ) {
-        val parentStyle = CssCascadeResolver.computeStyle(parentNode, stylesheet).base
+        val parentStyle = CssCascadeResolver.computeStyle(parentNode, stylesheet, styleCache).base
         val childBoundsMap = FlexLayoutEngine.layoutFlexContainerChildren(
             parentNode = parentNode,
             parentStyle = parentStyle,
             stylesheet = stylesheet,
             parentWidth = parentWidth,
-            parentHeight = parentHeight
+            parentHeight = parentHeight,
+            styleCache = styleCache
         )
 
         fun compilePseudoElement(
@@ -143,14 +146,8 @@ internal object DomTreeCompiler {
         }
 
         for (child in parentNode.children) {
-            if (allTextNodes.size <= 1 && child == textNode) continue
-
-            val childComputed = CssCascadeResolver.computeStyle(child, stylesheet)
+            val childComputed = CssCascadeResolver.computeStyle(child, stylesheet, styleCache)
             val childStyle = childComputed.base
-            if (!ButtonNodeSelector.isVisible(childStyle)) continue
-
-            val cOpacity = childStyle["opacity"]?.toFloatOrNull() ?: 1.0f
-            val cFilter = FilterParser.parse(childStyle["filter"] ?: child.attributes["filter"], svgFilters)
 
             val bounds = childBoundsMap[child] ?: run {
                 val raw = GeometryParser.computeBoxBounds(childStyle, parentWidth, parentHeight)
@@ -163,6 +160,14 @@ internal object DomTreeCompiler {
 
             val globalX = parentGlobalX + localLeft
             val globalY = parentGlobalY + localTop
+
+            resolvedNodeBounds?.put(child, ComputedBoxBounds(globalX, globalY, cWidth, cHeight))
+
+            if (allTextNodes.size <= 1 && child == textNode) continue
+            if (!ButtonNodeSelector.isVisible(childStyle)) continue
+
+            val cOpacity = childStyle["opacity"]?.toFloatOrNull() ?: 1.0f
+            val cFilter = FilterParser.parse(childStyle["filter"] ?: child.attributes["filter"], svgFilters)
 
             val childZ = GeometryParser.parseZIndex(childStyle)
             val childStack = parentStackBase + childZ * 10
@@ -353,7 +358,9 @@ internal object DomTreeCompiler {
                     textNode = textNode,
                     allTextNodes = allTextNodes,
                     hasSurfaceSvg = hasSurfaceSvg,
-                    svgFilters = svgFilters
+                    svgFilters = svgFilters,
+                    styleCache = styleCache,
+                    resolvedNodeBounds = resolvedNodeBounds
                 )
             }
 
