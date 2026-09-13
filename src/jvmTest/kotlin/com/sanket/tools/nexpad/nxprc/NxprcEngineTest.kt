@@ -1551,5 +1551,73 @@ LINE TWO</button>
         assertEquals(450f, decoded.manifest.springPhysics.stiffness, 0.1f)
         assertEquals(0.89f, decoded.manifest.springPhysics.pressedScale, 0.01f)
     }
+
+    @Test
+    fun testJoystickComponentCompilationAndBinaryRoundTrip() {
+        val stickHtml = """
+            <style>
+              :root {
+                --stick-size: 130px;
+                --spring-damping: 0.70;
+                --spring-stiffness: 420;
+                --press-scale: 0.92;
+              }
+              .stick-btn {
+                position: relative;
+                width: 130px;
+                height: 130px;
+                border-radius: 50%;
+                background: radial-gradient(circle at 45% 40%, #2b313d 0%, #14171e 65%, #08090c 100%);
+                box-shadow: inset 0 -8px 16px rgba(0,0,0,0.85), inset 0 3px 6px rgba(255,255,255,0.25);
+              }
+              .stick-btn:active {
+                transform: scale(0.92);
+              }
+              .thumb-dome {
+                position: absolute;
+                left: 32px;
+                top: 32px;
+                width: 66px;
+                height: 66px;
+                border-radius: 50%;
+                background: radial-gradient(circle, #1a1e26 0%, #0d0f14 100%);
+              }
+            </style>
+            <button class="stick-btn" data-control="LS" data-category="JOYSTICK" data-name="Captain Shield Stick">
+              <div class="thumb-dome">
+                <svg width="40" height="40" viewBox="0 0 40 40">
+                  <polygon points="20,5 24,15 35,15 26,22 29,33 20,26 11,33 14,22 5,15 16,15" fill="#ffffff" />
+                </svg>
+              </div>
+              <span class="stick-label">L3</span>
+            </button>
+        """.trimIndent()
+
+        val doc = NxprcPackager.compile(stickHtml, id = "rc.captain_shield_stick", name = "Captain Shield Stick")
+
+        assertEquals("JOYSTICK", doc.manifest.category)
+        assertEquals("LS", doc.manifest.defaultControl)
+        assertEquals(130, doc.manifest.widthDp)
+        assertEquals(130, doc.manifest.heightDp)
+        assertEquals(800f, doc.animations.joystickSpringTension)
+        assertEquals(0.70f, doc.manifest.springPhysics.dampingRatio, 0.01f)
+        assertEquals(420f, doc.manifest.springPhysics.stiffness, 0.1f)
+        assertEquals(0.92f, doc.manifest.springPhysics.pressedScale, 0.01f)
+        assertTrue(doc.canvas.layers.isNotEmpty(), "Joystick must produce canvas draw layers")
+
+        // Encode to binary and decode back
+        val bytes = NxprcDocument.encodeToBytes(doc)
+        val decoded = NxprcDocument.decodeFromBytes(bytes).getOrThrow()
+
+        assertEquals("JOYSTICK", decoded.manifest.category)
+        assertEquals("LS", decoded.manifest.defaultControl)
+        assertEquals(130, decoded.manifest.widthDp)
+        assertEquals(130, decoded.manifest.heightDp)
+        assertEquals(800f, decoded.animations.joystickSpringTension)
+        assertEquals(0.70f, decoded.manifest.springPhysics.dampingRatio, 0.01f)
+        assertEquals(420f, decoded.manifest.springPhysics.stiffness, 0.1f)
+        assertEquals(0.92f, decoded.manifest.springPhysics.pressedScale, 0.01f)
+        assertEquals(doc.canvas.layers.size, decoded.canvas.layers.size)
+    }
 }
 
