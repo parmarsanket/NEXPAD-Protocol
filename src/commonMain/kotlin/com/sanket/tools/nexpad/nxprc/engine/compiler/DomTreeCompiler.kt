@@ -34,7 +34,7 @@ internal object DomTreeCompiler {
         layerCollector: LayerCollector,
         textNode: DomNode?,
         allTextNodes: List<DomNode>,
-        hasSurfaceSvg: Boolean = false,
+        surfaceSvgNode: DomNode? = null,
         svgFilters: Map<String, ParsedSvgFilter> = emptyMap(),
         styleCache: MutableMap<DomNode, com.sanket.tools.nexpad.nxprc.engine.css.ComputedElementStyle>? = null,
         resolvedNodeBounds: MutableMap<DomNode, ComputedBoxBounds>? = null
@@ -174,17 +174,17 @@ internal object DomTreeCompiler {
 
             // If child is an SVG element, extract its shapes directly into VectorPath layers
             if (child.tag.equals("svg", ignoreCase = true)) {
-                if (hasSurfaceSvg) continue
+                if (surfaceSvgNode != null && child == surfaceSvgNode) continue
                 val paintServers = SvgGeometryParser.extractPaintServers(child, stylesheet)
                 val svgShapes = child.getAllSvgShapes(stylesheet, paintServers)
                 if (svgShapes.isNotEmpty()) {
-                    val scale = (minOf(cWidth / buttonWidth, cHeight / buttonHeight)).coerceIn(0.05f, 2.0f)
-                    val offX = (globalX + cWidth / 2f - buttonWidth / 2f) / buttonWidth
-                    val offY = (globalY + cHeight / 2f - buttonHeight / 2f) / buttonHeight
+                    val scale = (maxOf(cWidth / buttonWidth, cHeight / buttonHeight)).coerceIn(0.05f, 2.0f)
+                    val offX = globalX / buttonWidth
+                    val offY = globalY / buttonHeight
                     svgShapes.forEachIndexed { sIdx, shape ->
                         val resolvedFill = shape.fill ?: if (sIdx == 0 && shape.stroke == null) FillBrush.Solid(NxprcDefaults.DEFAULT_ACCENT_COLOR) else shape.fill ?: FillBrush.Solid(0x00000000L)
                         layerCollector.addLayer(
-                            childStack + 50 + sIdx,
+                            childStack + 1 + sIdx,
                             CanvasLayer.VectorPath(
                                 pathData = shape.pathData,
                                 fill = resolvedFill,
@@ -358,7 +358,7 @@ internal object DomTreeCompiler {
                     layerCollector = layerCollector,
                     textNode = textNode,
                     allTextNodes = allTextNodes,
-                    hasSurfaceSvg = hasSurfaceSvg,
+                    surfaceSvgNode = surfaceSvgNode,
                     svgFilters = svgFilters,
                     styleCache = styleCache,
                     resolvedNodeBounds = resolvedNodeBounds

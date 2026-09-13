@@ -3,6 +3,7 @@ package com.sanket.tools.nexpad.nxprc.engine.compiler
 import com.sanket.tools.nexpad.nxprc.*
 import com.sanket.tools.nexpad.nxprc.engine.css.CssCascadeResolver
 import com.sanket.tools.nexpad.nxprc.engine.css.CssTokenizer
+import com.sanket.tools.nexpad.nxprc.engine.dom.DomNode
 import com.sanket.tools.nexpad.nxprc.engine.dom.HtmlDomParser
 import com.sanket.tools.nexpad.nxprc.engine.parsers.*
 
@@ -111,6 +112,8 @@ object NxprcCompiler {
         val baseFilterDef = EffectsResolver.toFilterDef(baseFilter)
         val baseRotating = AnimationParser.isRotatingAnimation(stylesheet, baseProps)
 
+        var surfaceSvgNode: DomNode? = null
+
         if (isBoxPrimitive) {
             val rootBox = BoxLayerBuilder.buildBoxLayer(
                 shapeType = shapeType,
@@ -155,7 +158,18 @@ object NxprcCompiler {
 
             // 3. Main Surface Background (SVG Shapes/Paths or Multi-layer Gradients)
             val paintServers = SvgGeometryParser.extractPaintServers(primaryNode, stylesheet)
-            val svgShapes = primaryNode.getAllSvgShapes(stylesheet, paintServers).ifEmpty { parsed.root.getAllSvgShapes(stylesheet, paintServers) }
+            val directSurfaceChild = if (primaryNode.tag.equals("svg", ignoreCase = true)) {
+                primaryNode
+            } else if (allFills.isEmpty() && primaryNode.children.size == 1 && primaryNode.children[0].tag.equals("svg", ignoreCase = true)) {
+                primaryNode.children[0]
+            } else if (allFills.isEmpty()) {
+                primaryNode.children.firstOrNull { it.tag.equals("svg", ignoreCase = true) && it.classNames.any { c -> c.contains("surface") || c.contains("bg") } }
+            } else {
+                null
+            }
+
+            surfaceSvgNode = directSurfaceChild
+            val svgShapes = if (surfaceSvgNode != null) surfaceSvgNode.getAllSvgShapes(stylesheet, paintServers) else emptyList()
 
             if (svgShapes.isNotEmpty()) {
                 svgShapes.forEachIndexed { index, shape ->
@@ -321,8 +335,6 @@ object NxprcCompiler {
         }
 
         // 5. Recursive DOM Tree Compilation
-        val paintServers = SvgGeometryParser.extractPaintServers(primaryNode, stylesheet)
-        val hasSurfaceSvg = !isBoxPrimitive && (primaryNode.getAllSvgShapes(stylesheet, paintServers).isNotEmpty() || parsed.root.getAllSvgShapes(stylesheet, paintServers).isNotEmpty())
         DomTreeCompiler.compileDomChildren(
             parentNode = primaryNode,
             parentWidth = buttonWidth,
@@ -338,7 +350,7 @@ object NxprcCompiler {
             layerCollector = layerCollector,
             textNode = textNode,
             allTextNodes = allTextNodes,
-            hasSurfaceSvg = hasSurfaceSvg,
+            surfaceSvgNode = surfaceSvgNode,
             svgFilters = svgFilters,
             styleCache = styleCache,
             resolvedNodeBounds = resolvedNodeBounds

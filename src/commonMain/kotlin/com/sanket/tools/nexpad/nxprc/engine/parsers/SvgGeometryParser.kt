@@ -259,14 +259,41 @@ object SvgGeometryParser {
         }
     }
 
+    fun findSvgInheritedAttr(node: DomNode, attr: String, stylesheet: CssStylesheet? = null): String? {
+        var curr: DomNode? = node
+        while (curr != null) {
+            val tag = curr.tag.lowercase()
+            if (tag !in listOf("path", "circle", "rect", "line", "polyline", "polygon", "ellipse", "g", "svg", "text", "tspan", "defs")) break
+            val computed = if (stylesheet != null) CssCascadeResolver.computeStyle(curr, stylesheet).base else emptyMap()
+            val v = curr.attributes[attr] ?: curr.inlineStyles[attr] ?: computed[attr]
+            if (!v.isNullOrBlank()) return v
+            curr = curr.parent
+        }
+        return null
+    }
+
+    fun computeSvgCumulativeOpacity(node: DomNode, stylesheet: CssStylesheet? = null): Float {
+        var curr: DomNode? = node
+        var mult = 1.0f
+        while (curr != null) {
+            val tag = curr.tag.lowercase()
+            if (tag !in listOf("path", "circle", "rect", "line", "polyline", "polygon", "ellipse", "g", "svg", "text", "tspan", "defs")) break
+            val computed = if (stylesheet != null) CssCascadeResolver.computeStyle(curr, stylesheet).base else emptyMap()
+            val opStr = curr.attributes["opacity"] ?: curr.inlineStyles["opacity"] ?: computed["opacity"]
+            if (!opStr.isNullOrBlank()) {
+                mult *= parseOpacity(opStr)
+            }
+            curr = curr.parent
+        }
+        return mult
+    }
+
     fun parseFill(
         node: DomNode,
         stylesheet: CssStylesheet? = null,
         paintServers: Map<String, FillBrush> = emptyMap()
     ): FillBrush? {
-        val computed = if (stylesheet != null) CssCascadeResolver.computeStyle(node, stylesheet).base else emptyMap()
-
-        val fillStr = node.attributes["fill"] ?: node.inlineStyles["fill"] ?: computed["fill"]
+        val fillStr = findSvgInheritedAttr(node, "fill", stylesheet)
         var brush: FillBrush? = null
 
         if (fillStr != null) {
@@ -294,19 +321,18 @@ object SvgGeometryParser {
 
         if (brush == null) return null
 
-        // Modulate opacity and fill-opacity if present
-        val opacityStr = node.attributes["opacity"] ?: node.inlineStyles["opacity"] ?: computed["opacity"]
-        val fillOpacityStr = node.attributes["fill-opacity"] ?: node.inlineStyles["fill-opacity"] ?: computed["fill-opacity"]
-        val op = opacityStr?.let { parseOpacity(it) } ?: 1.0f
+        // Modulate cumulative opacity and fill-opacity if present
+        val totalOpacity = computeSvgCumulativeOpacity(node, stylesheet)
+        val fillOpacityStr = findSvgInheritedAttr(node, "fill-opacity", stylesheet)
         val fOp = fillOpacityStr?.let { parseOpacity(it) } ?: 1.0f
-        val totalOpacity = op * fOp
+        val effectiveOpacity = totalOpacity * fOp
 
-        return if (totalOpacity < 1.0f) {
+        return if (effectiveOpacity < 1.0f) {
             when (brush) {
-                is FillBrush.Solid -> brush.copy(color = applyAlpha(brush.color, totalOpacity))
-                is FillBrush.LinearGradient -> brush.copy(colors = brush.colors.map { applyAlpha(it, totalOpacity) })
-                is FillBrush.RadialGradient -> brush.copy(colors = brush.colors.map { applyAlpha(it, totalOpacity) })
-                is FillBrush.SweepGradient -> brush.copy(colors = brush.colors.map { applyAlpha(it, totalOpacity) })
+                is FillBrush.Solid -> brush.copy(color = applyAlpha(brush.color, effectiveOpacity))
+                is FillBrush.LinearGradient -> brush.copy(colors = brush.colors.map { applyAlpha(it, effectiveOpacity) })
+                is FillBrush.RadialGradient -> brush.copy(colors = brush.colors.map { applyAlpha(it, effectiveOpacity) })
+                is FillBrush.SweepGradient -> brush.copy(colors = brush.colors.map { applyAlpha(it, effectiveOpacity) })
             }
         } else {
             brush
@@ -318,9 +344,7 @@ object SvgGeometryParser {
         stylesheet: CssStylesheet? = null,
         paintServers: Map<String, FillBrush> = emptyMap()
     ): StrokeStyle? {
-        val computed = if (stylesheet != null) CssCascadeResolver.computeStyle(node, stylesheet).base else emptyMap()
-
-        val strokeStr = node.attributes["stroke"] ?: node.inlineStyles["stroke"] ?: computed["stroke"] ?: return null
+        val strokeStr = findSvgInheritedAttr(node, "stroke", stylesheet) ?: return null
         val clean = strokeStr.trim()
         val cleanLower = clean.lowercase()
         if (cleanLower == "none" || cleanLower == "transparent") return null
@@ -343,21 +367,20 @@ object SvgGeometryParser {
             color = ColorParser.parse(cleanLower) ?: return null
         }
 
-        // Apply stroke-opacity and opacity
-        val opacityStr = node.attributes["opacity"] ?: node.inlineStyles["opacity"] ?: computed["opacity"]
-        val strokeOpacityStr = node.attributes["stroke-opacity"] ?: node.inlineStyles["stroke-opacity"] ?: computed["stroke-opacity"]
-        val op = opacityStr?.let { parseOpacity(it) } ?: 1.0f
+        // Apply stroke-opacity and cumulative opacity
+        val totalOpacity = computeSvgCumulativeOpacity(node, stylesheet)
+        val strokeOpacityStr = findSvgInheritedAttr(node, "stroke-opacity", stylesheet)
         val sOp = strokeOpacityStr?.let { parseOpacity(it) } ?: 1.0f
-        val totalOpacity = op * sOp
-        val finalColor = if (totalOpacity < 1.0f) applyAlpha(color, totalOpacity) else color
+        val effectiveOpacity = totalOpacity * sOp
+        val finalColor = if (effectiveOpacity < 1.0f) applyAlpha(color, effectiveOpacity) else color
 
-        val widthStr = node.attributes["stroke-width"] ?: node.inlineStyles["stroke-width"] ?: computed["stroke-width"]
+        val widthStr = findSvgInheritedAttr(node, "stroke-width", stylesheet)
         val width = widthStr?.let {
             val m = CssSyntaxPattern.LENGTH.matcher(it)
             if (m.find()) m.group(1).toFloatOrNull() else it.toFloatOrNull()
         } ?: 1.0f
 
-        val dashStr = node.attributes["stroke-dasharray"] ?: node.inlineStyles["stroke-dasharray"] ?: computed["stroke-dasharray"]
+        val dashStr = findSvgInheritedAttr(node, "stroke-dasharray", stylesheet)
         val isDashed = !dashStr.isNullOrBlank()
 
         return StrokeStyle(
