@@ -15,8 +15,154 @@ import com.sanket.tools.nexpad.nxprc.engine.text.TextMetrics
 internal object FlexLayoutEngine {
 
     /**
-     * Resolves the small but important subset of flex alignment for individual children
-     * (such as pseudo-elements and centered overlays).
+     * Canonical position resolver for out-of-flow (position: absolute) or explicitly positioned elements.
+     * When offsets (left, top, right, bottom, inset) are unspecified or auto, computes the W3C CSS Flexbox §4.1
+     * static position derived from the containing flex container's alignment properties (justify-content,
+     * align-items, align-self, flex-direction, and padding).
+     *
+     * Explicit author positioning constraints always take precedence over inferred static positioning.
+     */
+    fun resolvePositionedChildBounds(
+        parentStyle: Map<String, String>,
+        childStyle: Map<String, String>,
+        rawBounds: ComputedBoxBounds,
+        parentWidth: Float,
+        parentHeight: Float
+    ): ComputedBoxBounds {
+        if (parentStyle["display"]?.trim()?.lowercase() != "flex") return rawBounds
+
+        val constraints = GeometryParser.extractPositionConstraints(childStyle, parentWidth, parentHeight)
+
+        // If both horizontal and vertical offsets are explicitly constrained, static positioning is bypassed
+        if (constraints.hasExplicitHorizontal && constraints.hasExplicitVertical) {
+            val resolvedLeft = when {
+                constraints.left.isExplicit && constraints.right.isExplicit -> {
+                    val l = constraints.left.resolve(parentWidth) ?: 0f
+                    val r = constraints.right.resolve(parentWidth) ?: 0f
+                    val isMarginAuto = childStyle["margin"]?.contains("auto") == true || childStyle["margin-left"] == "auto"
+                    if (isMarginAuto) {
+                        l + (parentWidth - l - r - rawBounds.width).coerceAtLeast(0f) / 2f
+                    } else {
+                        l
+                    }
+                }
+                constraints.left.isExplicit -> constraints.left.resolve(parentWidth) ?: 0f
+                constraints.right.isExplicit -> (parentWidth - (constraints.right.resolve(parentWidth) ?: 0f) - rawBounds.width)
+                else -> rawBounds.left
+            }
+            val resolvedTop = when {
+                constraints.top.isExplicit && constraints.bottom.isExplicit -> {
+                    val t = constraints.top.resolve(parentHeight) ?: 0f
+                    val b = constraints.bottom.resolve(parentHeight) ?: 0f
+                    val isMarginAuto = childStyle["margin"]?.contains("auto") == true || childStyle["margin-top"] == "auto"
+                    if (isMarginAuto) {
+                        t + (parentHeight - t - b - rawBounds.height).coerceAtLeast(0f) / 2f
+                    } else {
+                        t
+                    }
+                }
+                constraints.top.isExplicit -> constraints.top.resolve(parentHeight) ?: 0f
+                constraints.bottom.isExplicit -> (parentHeight - (constraints.bottom.resolve(parentHeight) ?: 0f) - rawBounds.height)
+                else -> rawBounds.top
+            }
+            return rawBounds.copy(left = resolvedLeft, top = resolvedTop)
+        }
+
+        // Flex container padding
+        val pad = GeometryParser.parseInset(parentStyle["padding"], parentWidth, parentHeight)
+        val pTop = GeometryParser.parsePixelOrPercent(parentStyle["padding-top"], parentHeight, pad?.top ?: 0f)
+        val pBottom = GeometryParser.parsePixelOrPercent(parentStyle["padding-bottom"], parentHeight, pad?.bottom ?: 0f)
+        val pLeft = GeometryParser.parsePixelOrPercent(parentStyle["padding-left"], parentWidth, pad?.left ?: 0f)
+        val pRight = GeometryParser.parsePixelOrPercent(parentStyle["padding-right"], parentWidth, pad?.right ?: 0f)
+
+        // Flex orientation & alignment
+        val direction = parentStyle["flex-direction"]?.trim()?.lowercase() ?: "row"
+        val isColumn = direction == "column" || direction == "column-reverse"
+        val isReverse = direction == "row-reverse" || direction == "column-reverse"
+        val justify = parentStyle["justify-content"]?.trim()?.lowercase() ?: "flex-start"
+        val align = childStyle["align-self"]?.trim()?.lowercase()?.takeIf { it.isNotBlank() && it != "auto" }
+            ?: parentStyle["align-items"]?.trim()?.lowercase() ?: "stretch"
+
+        val availMain = if (isColumn) {
+            (parentHeight - pTop - pBottom - rawBounds.height).coerceAtLeast(0f)
+        } else {
+            (parentWidth - pLeft - pRight - rawBounds.width).coerceAtLeast(0f)
+        }
+
+        val availCross = if (isColumn) {
+            (parentWidth - pLeft - pRight - rawBounds.width).coerceAtLeast(0f)
+        } else {
+            (parentHeight - pTop - pBottom - rawBounds.height).coerceAtLeast(0f)
+        }
+
+        val startMain = if (isColumn) pTop else pLeft
+        val staticMain = if (!isReverse) {
+            when (justify) {
+                "center", "space-around", "space-evenly" -> startMain + availMain / 2f
+                "flex-end" -> startMain + availMain
+                else -> startMain // flex-start, space-between (1 item sits at start)
+            }
+        } else {
+            when (justify) {
+                "center", "space-around", "space-evenly" -> startMain + availMain / 2f
+                "flex-start", "space-between" -> startMain + availMain
+                else -> startMain // flex-end in reverse is at start
+            }
+        }
+
+        val startCross = if (isColumn) pLeft else pTop
+        val staticCross = when (align) {
+            "center" -> startCross + availCross / 2f
+            "flex-end" -> startCross + availCross
+            else -> startCross // flex-start, stretch, baseline
+        }
+
+        val staticLeft = if (isColumn) staticCross else staticMain
+        val staticTop = if (isColumn) staticMain else staticCross
+
+        val resolvedLeft = when {
+            constraints.left.isExplicit && constraints.right.isExplicit -> {
+                val l = constraints.left.resolve(parentWidth) ?: 0f
+                val r = constraints.right.resolve(parentWidth) ?: 0f
+                val isMarginAuto = childStyle["margin"]?.contains("auto") == true || childStyle["margin-left"] == "auto"
+                if (isMarginAuto) {
+                    l + (parentWidth - l - r - rawBounds.width).coerceAtLeast(0f) / 2f
+                } else {
+                    l
+                }
+            }
+            constraints.left.isExplicit -> constraints.left.resolve(parentWidth) ?: 0f
+            constraints.right.isExplicit -> (parentWidth - (constraints.right.resolve(parentWidth) ?: 0f) - rawBounds.width)
+            childStyle["margin"]?.contains("auto") == true || childStyle["margin-left"] == "auto" -> {
+                pLeft + (parentWidth - pLeft - pRight - rawBounds.width).coerceAtLeast(0f) / 2f
+            }
+            else -> staticLeft
+        }
+
+        val resolvedTop = when {
+            constraints.top.isExplicit && constraints.bottom.isExplicit -> {
+                val t = constraints.top.resolve(parentHeight) ?: 0f
+                val b = constraints.bottom.resolve(parentHeight) ?: 0f
+                val isMarginAuto = childStyle["margin"]?.contains("auto") == true || childStyle["margin-top"] == "auto"
+                if (isMarginAuto) {
+                    t + (parentHeight - t - b - rawBounds.height).coerceAtLeast(0f) / 2f
+                } else {
+                    t
+                }
+            }
+            constraints.top.isExplicit -> constraints.top.resolve(parentHeight) ?: 0f
+            constraints.bottom.isExplicit -> (parentHeight - (constraints.bottom.resolve(parentHeight) ?: 0f) - rawBounds.height)
+            childStyle["margin"]?.contains("auto") == true || childStyle["margin-top"] == "auto" -> {
+                pTop + (parentHeight - pTop - pBottom - rawBounds.height).coerceAtLeast(0f) / 2f
+            }
+            else -> staticTop
+        }
+
+        return rawBounds.copy(left = resolvedLeft, top = resolvedTop)
+    }
+
+    /**
+     * Backward-compatible delegate for existing callers.
      */
     fun resolveFlexChildBounds(
         parentStyle: Map<String, String>,
@@ -26,41 +172,7 @@ internal object FlexLayoutEngine {
         parentHeight: Float,
         allowAbsoluteFlexAlignment: Boolean = false
     ): ComputedBoxBounds {
-        if (parentStyle["display"]?.trim()?.lowercase() != "flex") return rawBounds
-
-        // Absolutely positioned children follow inset/left/top and must not
-        // be moved by flex alignment.
-        if ((!allowAbsoluteFlexAlignment && childStyle["position"]?.trim()?.lowercase() == "absolute") ||
-            childStyle.keys.any { it == "inset" || it == "left" || it == "right" || it == "top" || it == "bottom" }
-        ) return rawBounds
-
-        val direction = parentStyle["flex-direction"]?.trim()?.lowercase() ?: "row"
-        val justify = parentStyle["justify-content"]?.trim()?.lowercase() ?: "flex-start"
-        val align = parentStyle["align-items"]?.trim()?.lowercase() ?: "stretch"
-
-        fun centered(start: Float, available: Float, size: Float): Float =
-            when (start) {
-                0f -> (available - size).coerceAtLeast(0f) / 2f
-                else -> start
-            }
-
-        val isColumn = direction == "column" || direction == "column-reverse"
-        var left = rawBounds.left
-        var top = rawBounds.top
-
-        if (!isColumn && (justify == "center" || justify == "space-around" || justify == "space-evenly")) {
-            left = centered(rawBounds.left, parentWidth, rawBounds.width)
-        } else if (isColumn && (justify == "center" || justify == "space-around" || justify == "space-evenly")) {
-            top = centered(rawBounds.top, parentHeight, rawBounds.height)
-        }
-
-        if (!isColumn && (align == "center" || align == "space-around" || align == "space-evenly")) {
-            top = centered(rawBounds.top, parentHeight, rawBounds.height)
-        } else if (isColumn && (align == "center" || align == "space-around" || align == "space-evenly")) {
-            left = centered(rawBounds.left, parentWidth, rawBounds.width)
-        }
-
-        return rawBounds.copy(left = left, top = top)
+        return resolvePositionedChildBounds(parentStyle, childStyle, rawBounds, parentWidth, parentHeight)
     }
 
     /**
@@ -109,7 +221,7 @@ internal object FlexLayoutEngine {
             val rawBounds = GeometryParser.computeBoxBounds(childStyle, parentWidth, parentHeight)
 
             if (isAbsolute) {
-                result[child] = rawBounds
+                result[child] = resolvePositionedChildBounds(parentStyle, childStyle, rawBounds, parentWidth, parentHeight)
             } else {
                 var w = rawBounds.width
                 var h = rawBounds.height
@@ -317,16 +429,7 @@ internal object FlexLayoutEngine {
             val b = flexBoundsMap[elem] ?: run {
                 val elemStyle = CssCascadeResolver.computeStyle(elem, stylesheet).base
                 val raw = GeometryParser.computeBoxBounds(elemStyle, pW, pH)
-                val isParentFlex = parentStyle["display"]?.trim()?.lowercase() == "flex"
-                val isParentAlignCenter = parentStyle["align-items"]?.trim()?.lowercase() == "center"
-                val isParentJustifyCenter = parentStyle["justify-content"]?.trim()?.lowercase() == "center"
-                val left = if (raw.left == 0f && (isParentJustifyCenter || elemStyle["margin"] == "auto" || (isParentFlex && !parentStyle.containsKey("justify-content")))) {
-                    (pW - raw.width) / 2f
-                } else raw.left
-                val top = if (raw.top == 0f && (isParentAlignCenter || elemStyle["margin"] == "auto" || (isParentFlex && !parentStyle.containsKey("align-items")))) {
-                    (pH - raw.height) / 2f
-                } else raw.top
-                raw.copy(left = left, top = top)
+                resolvePositionedChildBounds(parentStyle, elemStyle, raw, pW, pH)
             }
             curX += b.left
             curY += b.top

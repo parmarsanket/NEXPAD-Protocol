@@ -42,6 +42,56 @@ object GeometryParser {
         }
     }
 
+    /**
+     * Parses a CSS positional offset string into a semantic [CssPositionValue],
+     * strictly distinguishing Unspecified / Auto from explicit Px or Percent.
+     */
+    fun parsePositionValue(valStr: String?): CssPositionValue {
+        if (valStr.isNullOrBlank()) return CssPositionValue.Unspecified
+        val clean = valStr.trim().lowercase()
+        if (clean == "auto") return CssPositionValue.Auto
+        if (clean.endsWith("%")) {
+            val pct = clean.removeSuffix("%").toFloatOrNull() ?: return CssPositionValue.Unspecified
+            return CssPositionValue.Percent(pct)
+        }
+        val m = PX_PATTERN.matcher(clean)
+        if (m.find()) {
+            val px = m.group(1).toFloatOrNull() ?: return CssPositionValue.Unspecified
+            return CssPositionValue.Px(px)
+        }
+        val num = clean.toFloatOrNull()
+        return if (num != null) CssPositionValue.Px(num) else CssPositionValue.Unspecified
+    }
+
+    /**
+     * Extracts horizontal and vertical position constraints from CSS style rules,
+     * merging `inset` shorthand with explicit `left`, `right`, `top`, `bottom`.
+     */
+    fun extractPositionConstraints(style: Map<String, String>, parentW: Float, parentH: Float): PositionConstraints {
+        val inset = parseInset(style["inset"], parentW, parentH)
+        val left = when {
+            style["left"] != null -> parsePositionValue(style["left"])
+            inset != null -> CssPositionValue.Px(inset.left)
+            else -> CssPositionValue.Unspecified
+        }
+        val right = when {
+            style["right"] != null -> parsePositionValue(style["right"])
+            inset != null -> CssPositionValue.Px(inset.right)
+            else -> CssPositionValue.Unspecified
+        }
+        val top = when {
+            style["top"] != null -> parsePositionValue(style["top"])
+            inset != null -> CssPositionValue.Px(inset.top)
+            else -> CssPositionValue.Unspecified
+        }
+        val bottom = when {
+            style["bottom"] != null -> parsePositionValue(style["bottom"])
+            inset != null -> CssPositionValue.Px(inset.bottom)
+            else -> CssPositionValue.Unspecified
+        }
+        return PositionConstraints(left = left, right = right, top = top, bottom = bottom)
+    }
+
     fun computeBoxBounds(style: Map<String, String>, parentW: Float, parentH: Float): ComputedBoxBounds {
         val inset = parseInset(style["inset"], parentW, parentH)
 

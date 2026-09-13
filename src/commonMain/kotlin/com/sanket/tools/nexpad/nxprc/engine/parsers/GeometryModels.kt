@@ -21,6 +21,42 @@ data class InsetRect(
 )
 
 /**
+ * Semantic representation of a CSS positional offset (left, right, top, bottom, inset).
+ * Explicitly distinguishes unspecified/auto offsets from explicit pixels or percentages.
+ */
+sealed class CssPositionValue {
+    data object Unspecified : CssPositionValue()
+    data object Auto : CssPositionValue()
+    data class Px(val value: Float) : CssPositionValue()
+    data class Percent(val value: Float) : CssPositionValue()
+
+    fun resolve(parentDim: Float): Float? = when (this) {
+        is Px -> value
+        is Percent -> (value / 100f) * parentDim
+        is Auto, is Unspecified -> null
+    }
+
+    val isExplicit: Boolean
+        get() = this is Px || this is Percent
+}
+
+/**
+ * Group of positional constraints along horizontal and vertical axes for an element.
+ */
+data class PositionConstraints(
+    val left: CssPositionValue = CssPositionValue.Unspecified,
+    val right: CssPositionValue = CssPositionValue.Unspecified,
+    val top: CssPositionValue = CssPositionValue.Unspecified,
+    val bottom: CssPositionValue = CssPositionValue.Unspecified
+) {
+    val hasExplicitHorizontal: Boolean
+        get() = left.isExplicit || right.isExplicit
+
+    val hasExplicitVertical: Boolean
+        get() = top.isExplicit || bottom.isExplicit
+}
+
+/**
  * Absolute or parent-relative bounding coordinates computed by the box model or flex layout engine.
  */
 data class ComputedBoxBounds(

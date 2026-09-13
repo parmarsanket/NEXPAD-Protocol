@@ -47,6 +47,7 @@ internal object DomTreeCompiler {
         )
 
         fun compilePseudoElement(
+            parentStyle: Map<String, String>,
             pseudoStyle: Map<String, String>?,
             isBefore: Boolean,
             parentGlobalX: Float,
@@ -61,7 +62,14 @@ internal object DomTreeCompiler {
             val pOpacity = pseudoStyle["opacity"]?.toFloatOrNull() ?: 1.0f
             val pFilter = FilterParser.parse(pseudoStyle["filter"], svgFilters)
 
-            val pBounds = GeometryParser.computeBoxBounds(pseudoStyle, parentW, parentH)
+            val rawPBounds = GeometryParser.computeBoxBounds(pseudoStyle, parentW, parentH)
+            val pBounds = FlexLayoutEngine.resolvePositionedChildBounds(
+                parentStyle = parentStyle,
+                childStyle = pseudoStyle,
+                rawBounds = rawPBounds,
+                parentWidth = parentW,
+                parentHeight = parentH
+            )
             val pWidth = pBounds.width
             val pHeight = pBounds.height
             val pLocalLeft = pBounds.left
@@ -144,7 +152,10 @@ internal object DomTreeCompiler {
             val cOpacity = childStyle["opacity"]?.toFloatOrNull() ?: 1.0f
             val cFilter = FilterParser.parse(childStyle["filter"] ?: child.attributes["filter"], svgFilters)
 
-            val bounds = childBoundsMap[child] ?: GeometryParser.computeBoxBounds(childStyle, parentWidth, parentHeight)
+            val bounds = childBoundsMap[child] ?: run {
+                val raw = GeometryParser.computeBoxBounds(childStyle, parentWidth, parentHeight)
+                FlexLayoutEngine.resolvePositionedChildBounds(parentStyle, childStyle, raw, parentWidth, parentHeight)
+            }
             val cWidth = bounds.width
             val cHeight = bounds.height
             val localLeft = bounds.left
@@ -244,6 +255,7 @@ internal object DomTreeCompiler {
 
             // Compile child ::before pseudo-element
             compilePseudoElement(
+                parentStyle = childStyle,
                 pseudoStyle = childComputed.before,
                 isBefore = true,
                 parentGlobalX = globalX,
@@ -347,6 +359,7 @@ internal object DomTreeCompiler {
 
             // Compile child ::after pseudo-element
             compilePseudoElement(
+                parentStyle = childStyle,
                 pseudoStyle = childComputed.after,
                 isBefore = false,
                 parentGlobalX = globalX,

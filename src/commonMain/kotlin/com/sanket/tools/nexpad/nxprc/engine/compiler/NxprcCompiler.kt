@@ -224,13 +224,12 @@ object NxprcCompiler {
                 isTopOnly = isBeforeTopOnly
             )
             val rawBeforeBounds = GeometryParser.computeBoxBounds(beforeStyle, buttonWidth, buttonHeight)
-            val bounds = FlexLayoutEngine.resolveFlexChildBounds(
+            val bounds = FlexLayoutEngine.resolvePositionedChildBounds(
                 parentStyle = baseProps,
                 childStyle = beforeStyle,
                 rawBounds = rawBeforeBounds,
                 parentWidth = buttonWidth,
-                parentHeight = buttonHeight,
-                allowAbsoluteFlexAlignment = true
+                parentHeight = buttonHeight
             )
             val beforeWidth = bounds.width
             val beforeHeight = bounds.height
@@ -350,13 +349,12 @@ object NxprcCompiler {
             val afterOpacity = afterStyle["opacity"]?.toFloatOrNull() ?: 1.0f
             val afterFilter = FilterParser.parse(afterStyle["filter"], svgFilters)
             val rawAfterBounds = GeometryParser.computeBoxBounds(afterStyle, buttonWidth, buttonHeight)
-            val bounds = FlexLayoutEngine.resolveFlexChildBounds(
+            val bounds = FlexLayoutEngine.resolvePositionedChildBounds(
                 parentStyle = baseProps,
                 childStyle = afterStyle,
                 rawBounds = rawAfterBounds,
                 parentWidth = buttonWidth,
-                parentHeight = buttonHeight,
-                allowAbsoluteFlexAlignment = true
+                parentHeight = buttonHeight
             )
             val afterWidth = bounds.width
             val afterHeight = bounds.height
