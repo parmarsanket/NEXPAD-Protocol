@@ -564,9 +564,17 @@ object NxprcCompiler {
 
         // Fallback CenterGlyph if no child text node was found
         if (!centerGlyphAdded) {
-            val centerText = primaryNode.findFirstText() ?: defaultControl
-            val textColor = ColorParser.parse(baseProps["color"]) ?: 0xFFFFFFFFL
-            val fontSize = GeometryParser.parseFontSize(baseProps["font-size"]) ?: (buttonHeight * 0.35f)
+            val explicitText = primaryNode.findFirstText()
+            // For JOYSTICK, do not force an automatic "LS" / "RS" CenterGlyph if no explicit text was provided
+            val centerText = if (autoCategory.equals("JOYSTICK", ignoreCase = true)) {
+                explicitText
+            } else {
+                explicitText ?: defaultControl
+            }
+
+            if (centerText != null) {
+                val textColor = ColorParser.parse(baseProps["color"]) ?: 0xFFFFFFFFL
+                val fontSize = GeometryParser.parseFontSize(baseProps["font-size"]) ?: (buttonHeight * 0.35f)
             val textShadows = ShadowParser.parseTextShadows(baseProps["text-shadow"])
 
             val darkTextShadow = textShadows.firstOrNull { ColorParser.isDark(it.color) }
@@ -620,6 +628,7 @@ object NxprcCompiler {
                     ),
                     isThumbCap = autoCategory.equals("JOYSTICK", ignoreCase = true)
                 )
+            }
             }
         }
 
@@ -696,13 +705,30 @@ object NxprcCompiler {
         val totalCanvasOutsets = EffectsResolver.computeTotalCanvasOutsets(layerCollector.getAllEntries())
         val (allSortedLayers, initialCapIndices) = layerCollector.getSortedLayersAndCapIndices()
         val capIndices = if (autoCategory.equals("JOYSTICK", ignoreCase = true)) {
-            if (initialCapIndices.isNotEmpty()) {
-                initialCapIndices
+            val capSet = initialCapIndices.toMutableSet()
+            // If any cap layers exist, ensure that any inner concentric thumb shapes (widthRatio <= 0.68f)
+            // are also included as part of the movable thumb cap (e.g. thumb dome, knurled grip rings)
+            allSortedLayers.forEachIndexed { index, layer ->
+                if (index !in capSet) {
+                    val isConcentricCapShape = when (layer) {
+                        is CanvasLayer.BoxLayer -> layer.widthRatio <= 0.68f && layer.heightRatio <= 0.68f &&
+                                layer.offsetXRatio in 0.05f..0.50f && layer.offsetYRatio in 0.05f..0.50f
+                        is CanvasLayer.GradientShape -> layer.widthRatio <= 0.68f && layer.heightRatio <= 0.68f &&
+                                layer.offsetXRatio in 0.05f..0.50f && layer.offsetYRatio in 0.05f..0.50f
+                        else -> false
+                    }
+                    if (isConcentricCapShape && capSet.isNotEmpty()) {
+                        capSet.add(index)
+                    }
+                }
+            }
+            if (capSet.isNotEmpty()) {
+                capSet.sorted()
             } else {
                 allSortedLayers.mapIndexedNotNull { index, layer ->
                     when (layer) {
-                        is CanvasLayer.BoxLayer -> if (layer.widthRatio <= 0.65f && layer.heightRatio <= 0.65f) index else null
-                        is CanvasLayer.GradientShape -> if (layer.widthRatio <= 0.65f && layer.heightRatio <= 0.65f) index else null
+                        is CanvasLayer.BoxLayer -> if (layer.widthRatio <= 0.68f && layer.heightRatio <= 0.68f) index else null
+                        is CanvasLayer.GradientShape -> if (layer.widthRatio <= 0.68f && layer.heightRatio <= 0.68f) index else null
                         is CanvasLayer.CenterGlyph -> index
                         is CanvasLayer.TextLayer -> index
                         else -> null

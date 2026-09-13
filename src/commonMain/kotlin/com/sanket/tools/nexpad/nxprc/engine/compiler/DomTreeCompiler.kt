@@ -17,26 +17,36 @@ internal object DomTreeCompiler {
 
     fun isNodeThumbCap(node: DomNode, category: String): Boolean {
         if (!category.equals("JOYSTICK", ignoreCase = true)) return false
-        val classOrId = (node.classNames + listOfNotNull(node.id)).joinToString(" ").lowercase()
-        val isExplicitBase = classOrId.contains("base") || classOrId.contains("bezel") || classOrId.contains("chassis") ||
-                classOrId.contains("housing") || classOrId.contains("outer") || classOrId.contains("ring") ||
-                classOrId.contains("socket") || classOrId.contains("tick") || classOrId.contains("axis") ||
-                classOrId.contains("marker") || classOrId.contains("node") || classOrId.contains("guide")
-        if (isExplicitBase) return false
 
+        // 1. Ancestor hierarchy takes highest precedence: containers define physical zones
+        var ancestor = node.parent
+        while (ancestor != null && !ancestor.tag.equals("button", ignoreCase = true)) {
+            val aClass = (ancestor.classNames + listOfNotNull(ancestor.id)).joinToString(" ").lowercase()
+            if (aClass.contains("thumb") || aClass.contains("cap") || aClass.contains("dome") || aClass.contains("knob")) {
+                // Inside a thumb cap container: unless the element explicitly declares itself a fixed base/socket, it belongs to the cap
+                val classOrId = (node.classNames + listOfNotNull(node.id)).joinToString(" ").lowercase()
+                return !classOrId.contains("base") && !classOrId.contains("socket")
+            }
+            if (aClass.contains("base") || aClass.contains("socket") || aClass.contains("bezel") || aClass.contains("chassis") || aClass.contains("housing")) {
+                return false
+            }
+            ancestor = ancestor.parent
+        }
+
+        // 2. Direct element inspection (when elements are direct children of <button>)
+        val classOrId = (node.classNames + listOfNotNull(node.id)).joinToString(" ").lowercase()
         val isExplicitCap = classOrId.contains("thumb") || classOrId.contains("cap") || classOrId.contains("dome") ||
                 classOrId.contains("knob") || classOrId.contains("grip") || classOrId.contains("core") ||
                 classOrId.contains("stick-label") || classOrId.contains("star") || classOrId.contains("emblem") ||
                 classOrId.contains("glyph")
         if (isExplicitCap) return true
 
-        var ancestor = node.parent
-        while (ancestor != null && !ancestor.tag.equals("button", ignoreCase = true)) {
-            val aClass = (ancestor.classNames + listOfNotNull(ancestor.id)).joinToString(" ").lowercase()
-            if (aClass.contains("thumb") || aClass.contains("cap") || aClass.contains("dome") || aClass.contains("knob")) return true
-            if (aClass.contains("base") || aClass.contains("socket") || aClass.contains("bezel")) return false
-            ancestor = ancestor.parent
-        }
+        val isExplicitBase = classOrId.contains("base") || classOrId.contains("bezel") || classOrId.contains("chassis") ||
+                classOrId.contains("housing") || classOrId.contains("outer") || classOrId.contains("ring") ||
+                classOrId.contains("socket") || classOrId.contains("tick") || classOrId.contains("axis") ||
+                classOrId.contains("marker") || classOrId.contains("node") || classOrId.contains("guide")
+        if (isExplicitBase) return false
+
         return false
     }
 
@@ -168,7 +178,10 @@ internal object DomTreeCompiler {
                     opacity = pOpacity,
                     transform = pTransform
                 )
-                val isPseudoCap = isNodeThumbCap(node, category)
+                val isPseudoCap = isNodeThumbCap(node, category) ||
+                        (category.equals("JOYSTICK", ignoreCase = true) &&
+                         node.tag.equals("button", ignoreCase = true) &&
+                         (pWidth / buttonWidth) <= 0.68f && (pHeight / buttonHeight) <= 0.68f)
                 layerCollector.addLayer(pStack, box, isThumbCap = isPseudoCap)
             }
         }
