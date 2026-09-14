@@ -1,0 +1,125 @@
+package com.sanket.tools.nexpad.nxprc.engine.dom
+
+import com.sanket.tools.nexpad.nxprc.engine.css.CssTokenizer
+import java.util.regex.Pattern
+
+data class ParsedHtmlResult(
+    val root: DomNode,
+    val embeddedCss: String
+)
+
+/**
+ * Robust HTML & SVG DOM Parser.
+ * Tokenizes markup into a DOM Tree and extracts embedded `<style>` sheets,
+ * automatically sanitizing stray HTML tags (like accidental `<button>`) inside `<style>`.
+ */
+object HtmlDomParser {
+
+    private val SELF_CLOSING = setOf(
+        "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "path", "source", "track", "wbr",
+        "circle", "rect", "polygon", "polyline", "line", "stop",
+        "fegaussianblur", "fecolormatrix", "fedropshadow", "fecomponenttransfer", "fefuncr", "fefuncg", "fefuncb", "fefunca",
+        "feblend", "feoffset", "femerge", "femergenode", "fecomposite", "feimage", "feturbulence", "fedisplacementmap"
+    )
+
+    private val STYLE_PATTERN = HtmlPattern.STYLE.pattern
+    private val STRIP_TAG_REGEX = HtmlSanitizeRegex.STRIP_TAG.regex
+    private val COMMENT_REGEX = HtmlSanitizeRegex.COMMENT.regex
+    private val DOCTYPE_REGEX = HtmlSanitizeRegex.DOCTYPE.regex
+    private val HEAD_REGEX = HtmlSanitizeRegex.HEAD.regex
+    private val SCRIPT_REGEX = HtmlSanitizeRegex.SCRIPT.regex
+    private val STYLE_BLOCK_REGEX = HtmlSanitizeRegex.STYLE_BLOCK.regex
+    private val TAG_PATTERN = HtmlPattern.TAG.pattern
+    private val ATTR_PATTERN = HtmlPattern.ATTR.pattern
+    private val WHITESPACE_REGEX = HtmlSanitizeRegex.WHITESPACE.regex
+
+    fun parse(html: String): ParsedHtmlResult {
+        // 1. Extract embedded <style> blocks and sanitize stray tags
+        val styleSb = StringBuilder()
+        val sm = STYLE_PATTERN.matcher(html)
+        while (sm.find()) {
+            val content = sm.group(1).replace(STRIP_TAG_REGEX, "")
+            styleSb.append(content).append("\n")
+        }
+
+        // Clean out <head>, <script>, <style> for DOM parsing
+        val bodyContent = html
+            .replace(COMMENT_REGEX, "")
+            .replace(DOCTYPE_REGEX, "")
+            .replace(HEAD_REGEX, "")
+            .replace(SCRIPT_REGEX, "")
+            .replace(STYLE_BLOCK_REGEX, "")
+            .trim()
+
+        val root = DomNode(tag = "root")
+        val stack = mutableListOf(root)
+        var current: DomNode = root
+
+        // Tokenize tags and text
+        val matcher = TAG_PATTERN.matcher(bodyContent)
+
+        while (matcher.find()) {
+            val isClosing = matcher.group(1) == "/"
+            val tagName = matcher.group(2)?.lowercase()
+            val rawAttrs = matcher.group(3) ?: ""
+            val endsWithSlash = rawAttrs.trim().endsWith("/")
+            val selfClose = matcher.group(4) == "/" || endsWithSlash || (tagName != null && SELF_CLOSING.contains(tagName))
+            val text = matcher.group(5)
+
+            if (text != null) {
+                val trimmed = text.trim()
+                if (trimmed.isNotBlank()) {
+                    current.textContent = (current.textContent + " " + trimmed).trim()
+                }
+            } else if (tagName != null) {
+                if (isClosing) {
+                    val openIndex = stack.indexOfLast { it.tag.equals(tagName, ignoreCase = true) }
+                    if (openIndex > 0) {
+                        while (stack.size > openIndex) stack.removeAt(stack.lastIndex)
+                        current = stack.last()
+                    }
+                } else {
+                    val cleanAttrs = if (endsWithSlash) rawAttrs.trim().removeSuffix("/").trim() else rawAttrs
+                    val attrs = parseAttributes(cleanAttrs)
+                    val id = attrs["id"]
+                    val classNames = attrs["class"]?.split(WHITESPACE_REGEX)?.filter { it.isNotBlank() } ?: emptyList()
+                    val inlineStyles = attrs["style"]?.let { parseInlineStyles(it) } ?: emptyMap()
+
+                    val node = DomNode(
+                        tag = tagName,
+                        id = id,
+                        classNames = classNames,
+                        inlineStyles = inlineStyles,
+                        attributes = attrs
+                    ).apply { parent = current }
+                    current.children.add(node)
+
+                    if (!selfClose) {
+                        stack.add(node)
+                        current = node
+                    }
+                }
+            }
+        }
+
+        return ParsedHtmlResult(
+            root = root,
+            embeddedCss = styleSb.toString()
+        )
+    }
+
+    private fun parseAttributes(raw: String): Map<String, String> {
+        val attrs = mutableMapOf<String, String>()
+        val m = ATTR_PATTERN.matcher(raw)
+        while (m.find()) {
+            val key = m.group(1).lowercase()
+            val value = m.group(3) ?: m.group(4) ?: ""
+            attrs[key] = value
+        }
+        return attrs
+    }
+
+    private fun parseInlineStyles(body: String): Map<String, String> {
+        return CssTokenizer.parseDeclarations(body)
+    }
+}

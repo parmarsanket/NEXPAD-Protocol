@@ -55,6 +55,14 @@ data class GamepadInput(
     @Volatile var accelX: Float = 0f,
     @Volatile var accelY: Float = 0f,
     @Volatile var accelZ: Float = 0f,
+
+    // Gravity sensor data (filtered, Earth gravity only)
+    @Volatile var gravityX: Float = 0f,
+    @Volatile var gravityY: Float = 0f,
+    @Volatile var gravityZ: Float = 0f,
+
+    // Sensor flags (bitmask): bit 0 = accel fields carry gravity data
+    @Volatile var sensorFlags: Byte = 0,
     
     // Networking
     @Volatile var sequenceNumber: Int = 0

@@ -1,0 +1,82 @@
+package com.sanket.tools.nexpad.nxprc.engine.dom
+
+class DomNode(
+    val tag: String,
+    val id: String? = null,
+    val classNames: List<String> = emptyList(),
+    val inlineStyles: Map<String, String> = emptyMap(),
+    val attributes: Map<String, String> = emptyMap(),
+    var textContent: String = "",
+    val children: MutableList<DomNode> = mutableListOf(),
+    val nodeIndex: Int = nextNodeIndex()
+) {
+    var parent: DomNode? = null
+
+    override fun equals(other: Any?): Boolean = this === other
+    override fun hashCode(): Int = nodeIndex
+
+    companion object {
+        private val counter = java.util.concurrent.atomic.AtomicInteger(0)
+        private fun nextNodeIndex(): Int = counter.incrementAndGet()
+    }
+
+    fun findFirst(predicate: (DomNode) -> Boolean): DomNode? {
+        if (predicate(this)) return this
+        for (child in children) {
+            val res = child.findFirst(predicate)
+            if (res != null) return res
+        }
+        return null
+    }
+
+    fun findByTag(tagName: String): List<DomNode> {
+        val results = mutableListOf<DomNode>()
+        fun recurse(node: DomNode) {
+            if (node.tag.equals(tagName, ignoreCase = true)) {
+                results.add(node)
+            }
+            node.children.forEach { recurse(it) }
+        }
+        recurse(this)
+        return results
+    }
+
+    fun findFirstText(): String? {
+        if (textContent.isNotBlank()) return textContent.trim()
+        for (child in children) {
+            val childText = child.findFirstText()
+            if (!childText.isNullOrBlank()) return childText
+        }
+        return null
+    }
+
+    fun findRoot(): DomNode {
+        var curr = this
+        while (curr.parent != null) {
+            curr = curr.parent!!
+        }
+        return curr
+    }
+
+    fun getAllSvgPaths(): List<String> = getAllSvgShapes().map { it.pathData }
+
+    fun getAllSvgShapes(
+        stylesheet: com.sanket.tools.nexpad.nxprc.engine.css.CssStylesheet? = null,
+        paintServers: Map<String, com.sanket.tools.nexpad.nxprc.FillBrush> = emptyMap()
+    ): List<com.sanket.tools.nexpad.nxprc.engine.parsers.SvgShapeElement> {
+        val shapes = mutableListOf<com.sanket.tools.nexpad.nxprc.engine.parsers.SvgShapeElement>()
+        fun recurse(node: DomNode) {
+            if (node.tag.equals("defs", ignoreCase = true)) return
+
+            val path = com.sanket.tools.nexpad.nxprc.engine.parsers.SvgGeometryParser.toPathData(node)
+            if (!path.isNullOrBlank()) {
+                val fill = com.sanket.tools.nexpad.nxprc.engine.parsers.SvgGeometryParser.parseFill(node, stylesheet, paintServers)
+                val stroke = com.sanket.tools.nexpad.nxprc.engine.parsers.SvgGeometryParser.parseStroke(node, stylesheet, paintServers)
+                shapes.add(com.sanket.tools.nexpad.nxprc.engine.parsers.SvgShapeElement(path, fill, stroke))
+            }
+            node.children.forEach { recurse(it) }
+        }
+        recurse(this)
+        return shapes
+    }
+}
