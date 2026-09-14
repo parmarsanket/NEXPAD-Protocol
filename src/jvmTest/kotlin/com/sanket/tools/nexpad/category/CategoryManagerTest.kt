@@ -21,21 +21,15 @@ class CategoryManagerTest {
         assertEquals(4, abxy.controls.size)
         val keys = abxy.controls.map { it.key }
         assertEquals(listOf("A", "B", "X", "Y"), keys)
-        assertTrue(abxy.isGroupCluster)
     }
 
     @Test
-    fun testDpadCrossAndDirections() {
+    fun testDpadCardinalDirections() {
         val dpad = CategoryManager.getCategory("DPAD")
         assertNotNull(dpad)
         val keys = dpad.controls.map { it.key }
-        assertTrue(keys.containsAll(listOf("DPAD", "UP", "DOWN", "LEFT", "RIGHT")))
-        
-        val cross = CategoryManager.getControl("DPAD")
-        assertNotNull(cross)
-        assertEquals(140, cross.defaultWidthDp)
-        assertEquals(140, cross.defaultHeightDp)
-        assertEquals(ComponentType.DPAD, cross.componentType)
+        assertEquals(listOf("UP", "DOWN", "LEFT", "RIGHT"), keys)
+        assertTrue(dpad.keys.containsAll(listOf("DPAD", "CROSS", "UP", "DOWN", "LEFT", "RIGHT")))
     }
 
     @Test

@@ -14,7 +14,7 @@ object CategoryManager {
         title = "ABXY",
         emoji = "🎮",
         symbol = CategorySymbol.GAMEPAD,
-        isGroupCluster = true,
+        isGroupCluster = false,
         description = "Action button cluster for primary combat and interaction.",
         controls = listOf(
             SubCategoryDefinition(
@@ -87,24 +87,9 @@ object CategoryManager {
         emoji = "🧭",
         symbol = CategorySymbol.DPAD,
         isGroupCluster = false,
-        description = "Directional navigation cross and cardinal facets.",
-        aliasKeys = setOf("CROSS"),
+        description = "Directional navigation cardinal buttons.",
+        aliasKeys = setOf("DPAD", "CROSS"),
         controls = listOf(
-            SubCategoryDefinition(
-                key = "DPAD",
-                label = "D-Pad Cross",
-                defaultName = "Directional 4-Way Cross",
-                defaultId = "rc.dpad_cross",
-                categoryType = CategoryType.DPAD,
-                componentType = ComponentType.DPAD,
-                defaultWidthDp = 140,
-                defaultHeightDp = 140,
-                accentColorArgb = 0xFF22D3EEL, // Neon Cyan
-                description = "Unified 4-way cross directional pad.",
-                emoji = "🧭",
-                symbol = CategorySymbol.DPAD,
-                promptHint = "Central dish or pivot well with 4 directional arms, tactile directional arrows."
-            ),
             SubCategoryDefinition(
                 key = "UP",
                 label = "D-Pad Up",
@@ -174,7 +159,7 @@ object CategoryManager {
         title = "Triggers",
         emoji = "🎯",
         symbol = CategorySymbol.TRIGGER,
-        isGroupCluster = true,
+        isGroupCluster = false,
         description = "Analog linear pressure triggers with progressive deflection.",
         controls = listOf(
             SubCategoryDefinition(
@@ -216,7 +201,7 @@ object CategoryManager {
         title = "Bumpers",
         emoji = "🛡️",
         symbol = CategorySymbol.BUMPER,
-        isGroupCluster = true,
+        isGroupCluster = false,
         description = "Curved digital shoulder bumpers with micro-switch click.",
         controls = listOf(
             SubCategoryDefinition(
@@ -258,7 +243,7 @@ object CategoryManager {
         title = "Sticks",
         emoji = "🕹️",
         symbol = CategorySymbol.STICK,
-        isGroupCluster = true,
+        isGroupCluster = false,
         description = "Dual 360-degree analog joysticks with concave thumb grip.",
         controls = listOf(
             SubCategoryDefinition(
