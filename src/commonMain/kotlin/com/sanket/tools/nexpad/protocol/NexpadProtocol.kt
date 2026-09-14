@@ -43,6 +43,11 @@ object NexpadProtocol {
     const val PACKET_TYPE_CONNECT: Byte = 0x04
     const val PACKET_TYPE_CONNECTED: Byte = 0x05
     const val PACKET_TYPE_DISCONNECT: Byte = 0x06
+    const val PACKET_TYPE_FILE_SYNC_START: Byte = 0xAF.toByte()
+
+    const val SYNC_TCP_PORT = 9995
+    const val FILE_SYNC_ACK: Byte = 0x06
+    const val FILE_SYNC_NACK: Byte = 0x15
 
     const val INPUT_PACKET_SIZE = 44
     const val FEEDBACK_PACKET_SIZE = 10
@@ -351,6 +356,79 @@ object NexpadProtocol {
                 packetLossPct = packetLossPct
             ),
             echoSequenceNumber
+        )
+    }
+
+    private val CRC32_TABLE = IntArray(256) { i ->
+        var c = i
+        for (j in 0 until 8) {
+            c = if ((c and 1) != 0) (c ushr 1) xor 0xEDB88320.toInt() else c ushr 1
+        }
+        c
+    }
+
+    /**
+     * Standard IEEE 802.3 CRC32 checksum for payload integrity verification.
+     */
+    fun computeCrc32(data: ByteArray, offset: Int = 0, length: Int = data.size - offset): Int {
+        var crc = -1
+        for (i in offset until (offset + length)) {
+            val byte = data[i].toInt() and 0xFF
+            crc = CRC32_TABLE[(crc xor byte) and 0xFF] xor (crc ushr 8)
+        }
+        return crc.inv()
+    }
+
+    data class FileSyncHeader(
+        val componentId: String,
+        val fileSize: Int,
+        val checksum: Int,
+        val headerSize: Int
+    )
+
+    /**
+     * Encodes a file sync header.
+     * Format:
+     * [0xAF (1B)] [fileSize (4B)] [idLength (1B)] [idBytes (NB)] [checksum (4B)]
+     */
+    fun encodeFileSyncHeader(componentId: String, payloadSize: Int, checksum: Int): ByteArray {
+        val idBytes = componentId.encodeToByteArray()
+        val idLen = idBytes.size.coerceAtMost(255)
+        val headerSize = 1 + 4 + 1 + idLen + 4
+        val out = ByteArray(headerSize)
+        var p = 0
+        out[p++] = PACKET_TYPE_FILE_SYNC_START
+        writeInt(out, p, payloadSize); p += 4
+        out[p++] = idLen.toByte()
+        idBytes.copyInto(out, p, 0, idLen); p += idLen
+        writeInt(out, p, checksum)
+        return out
+    }
+
+    /**
+     * Decodes a file sync header from the given byte array.
+     * Returns null if incomplete or invalid magic.
+     */
+    fun decodeFileSyncHeader(data: ByteArray, offset: Int = 0): FileSyncHeader? {
+        if (data.size - offset < 10) return null
+        var p = offset
+        val magic = data[p++]
+        if (magic != PACKET_TYPE_FILE_SYNC_START) return null
+
+        val fileSize = readInt(data, p); p += 4
+        if (fileSize < 0) return null
+
+        val idLen = data[p++].toInt() and 0xFF
+        if (data.size - p < idLen + 4) return null
+
+        val componentId = data.decodeToString(p, p + idLen); p += idLen
+        val checksum = readInt(data, p); p += 4
+
+        return FileSyncHeader(
+            componentId = componentId,
+            fileSize = fileSize,
+            checksum = checksum,
+            headerSize = p - offset
         )
     }
 }
