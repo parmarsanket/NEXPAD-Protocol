@@ -98,4 +98,15 @@ class CategoryManagerTest {
         assertEquals(120, wLb)
         assertEquals(60, hLb)
     }
+
+    @Test
+    fun testCategoryKeysIncludeAliases() {
+        val sys = CategoryManager.getCategory("SYSTEM")
+        assertNotNull(sys)
+        assertTrue(sys.keys.containsAll(listOf("START", "BACK", "GUIDE", "VIEW", "MENU", "HOME", "XBOX")))
+
+        val dpad = CategoryManager.getCategory("DPAD")
+        assertNotNull(dpad)
+        assertTrue(dpad.keys.contains("CROSS"))
+    }
 }

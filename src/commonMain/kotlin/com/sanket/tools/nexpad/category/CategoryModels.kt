@@ -70,7 +70,8 @@ data class CategoryDefinition(
     val symbol: CategorySymbol,
     val isGroupCluster: Boolean = false,
     val description: String,
-    val controls: List<SubCategoryDefinition>
+    val controls: List<SubCategoryDefinition>,
+    val aliasKeys: Set<String> = emptySet()
 ) {
-    val keys: Set<String> = controls.map { it.key.uppercase() }.toSet()
+    val keys: Set<String> = (controls.map { it.key.uppercase() } + aliasKeys.map { it.uppercase() }).toSet()
 }

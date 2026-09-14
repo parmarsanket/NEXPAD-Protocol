@@ -80,6 +80,7 @@ object CategoryManager {
         symbol = CategorySymbol.DPAD,
         isGroupCluster = false,
         description = "Directional navigation cross and cardinal facets.",
+        aliasKeys = setOf("CROSS"),
         controls = listOf(
             SubCategoryDefinition(
                 key = "DPAD",
@@ -271,6 +272,7 @@ object CategoryManager {
         symbol = CategorySymbol.SYSTEM,
         isGroupCluster = false,
         description = "System, navigation, utility, and special function buttons.",
+        aliasKeys = setOf("VIEW", "MENU", "SELECT", "HOME", "XBOX"),
         controls = listOf(
             SubCategoryDefinition(
                 key = "START",
