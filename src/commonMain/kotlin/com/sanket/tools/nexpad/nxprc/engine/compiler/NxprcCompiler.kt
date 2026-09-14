@@ -705,30 +705,40 @@ object NxprcCompiler {
         val totalCanvasOutsets = EffectsResolver.computeTotalCanvasOutsets(layerCollector.getAllEntries())
         val (allSortedLayers, initialCapIndices) = layerCollector.getSortedLayersAndCapIndices()
         val capIndices = if (autoCategory.equals("JOYSTICK", ignoreCase = true)) {
-            val capSet = initialCapIndices.toMutableSet()
-            // If any cap layers exist, ensure that any inner concentric thumb shapes (widthRatio <= 0.68f)
-            // are also included as part of the movable thumb cap (e.g. thumb dome, knurled grip rings)
-            allSortedLayers.forEachIndexed { index, layer ->
-                if (index !in capSet) {
-                    val isConcentricCapShape = when (layer) {
-                        is CanvasLayer.BoxLayer -> layer.widthRatio <= 0.68f && layer.heightRatio <= 0.68f &&
-                                layer.offsetXRatio in 0.05f..0.50f && layer.offsetYRatio in 0.05f..0.50f
-                        is CanvasLayer.GradientShape -> layer.widthRatio <= 0.68f && layer.heightRatio <= 0.68f &&
-                                layer.offsetXRatio in 0.05f..0.50f && layer.offsetYRatio in 0.05f..0.50f
+            val hasCapShapes = initialCapIndices.any {
+                val layer = allSortedLayers.getOrNull(it)
+                layer is CanvasLayer.BoxLayer || layer is CanvasLayer.GradientShape
+            }
+
+            fun isConcentricDome(wRatio: Float, hRatio: Float, xRatio: Float, yRatio: Float): Boolean {
+                val cx = xRatio + wRatio / 2f
+                val cy = yRatio + hRatio / 2f
+                return wRatio in 0.40f..0.75f && hRatio in 0.40f..0.75f &&
+                        kotlin.math.abs(cx - 0.5f) <= 0.15f && kotlin.math.abs(cy - 0.5f) <= 0.15f
+            }
+
+            if (hasCapShapes) {
+                // DOM tree compiler explicitly partitioned cap layers (e.g. <div class="stick-cap"> and children).
+                // Maintain strict boundary: never re-classify base layers (ticks, bezel, socket, markers) into the cap.
+                initialCapIndices.sorted()
+            } else if (initialCapIndices.isNotEmpty()) {
+                // Only text layers were marked as cap. Find concentric inner thumb dome shapes to move with the text.
+                val capSet = initialCapIndices.toMutableSet()
+                allSortedLayers.forEachIndexed { index, layer ->
+                    val matches = when (layer) {
+                        is CanvasLayer.BoxLayer -> isConcentricDome(layer.widthRatio, layer.heightRatio, layer.offsetXRatio, layer.offsetYRatio)
+                        is CanvasLayer.GradientShape -> isConcentricDome(layer.widthRatio, layer.heightRatio, layer.offsetXRatio, layer.offsetYRatio)
                         else -> false
                     }
-                    if (isConcentricCapShape && capSet.isNotEmpty()) {
-                        capSet.add(index)
-                    }
+                    if (matches) capSet.add(index)
                 }
-            }
-            if (capSet.isNotEmpty()) {
                 capSet.sorted()
             } else {
+                // Fallback for documents with no explicit cap metadata at all:
                 allSortedLayers.mapIndexedNotNull { index, layer ->
                     when (layer) {
-                        is CanvasLayer.BoxLayer -> if (layer.widthRatio <= 0.68f && layer.heightRatio <= 0.68f) index else null
-                        is CanvasLayer.GradientShape -> if (layer.widthRatio <= 0.68f && layer.heightRatio <= 0.68f) index else null
+                        is CanvasLayer.BoxLayer -> if (isConcentricDome(layer.widthRatio, layer.heightRatio, layer.offsetXRatio, layer.offsetYRatio)) index else null
+                        is CanvasLayer.GradientShape -> if (isConcentricDome(layer.widthRatio, layer.heightRatio, layer.offsetXRatio, layer.offsetYRatio)) index else null
                         is CanvasLayer.CenterGlyph -> index
                         is CanvasLayer.TextLayer -> index
                         else -> null
