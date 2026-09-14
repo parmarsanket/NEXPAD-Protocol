@@ -565,8 +565,11 @@ object NxprcCompiler {
         // Fallback CenterGlyph if no child text node was found
         if (!centerGlyphAdded) {
             val explicitText = primaryNode.findFirstText()
-            // For JOYSTICK, do not force an automatic "LS" / "RS" CenterGlyph if no explicit text was provided
-            val centerText = if (autoCategory.equals("JOYSTICK", ignoreCase = true)) {
+            val hasChildElements = primaryNode.children.any { it.tag != "#text" && it.tag != "style" }
+            val suppressFallbackText = autoCategory.equals("JOYSTICK", ignoreCase = true) ||
+                ((autoCategory.equals("SYSTEM", ignoreCase = true) || autoCategory.equals("DPAD", ignoreCase = true)) && hasChildElements)
+
+            val centerText = if (suppressFallbackText) {
                 explicitText
             } else {
                 explicitText ?: defaultControl
