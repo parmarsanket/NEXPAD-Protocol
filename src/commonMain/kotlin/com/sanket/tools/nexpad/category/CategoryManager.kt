@@ -28,6 +28,8 @@ object CategoryManager {
                 defaultHeightDp = 96,
                 accentColorArgb = 0xFF4ADE80L, // Neon Green
                 description = "Primary confirmation / jump button.",
+                emoji = "🅰️",
+                symbol = CategorySymbol.GAMEPAD,
                 promptHint = "Free silhouette, distinct tactile depth, glossy central core with high-contrast glyph."
             ),
             SubCategoryDefinition(
@@ -41,6 +43,8 @@ object CategoryManager {
                 defaultHeightDp = 96,
                 accentColorArgb = 0xFFF87171L, // Neon Red
                 description = "Secondary cancellation / evade button.",
+                emoji = "🅱️",
+                symbol = CategorySymbol.GAMEPAD,
                 promptHint = "Free silhouette, aggressive beveling, intense crimson accenting."
             ),
             SubCategoryDefinition(
@@ -54,6 +58,8 @@ object CategoryManager {
                 defaultHeightDp = 96,
                 accentColorArgb = 0xFF60A5FAL, // Neon Blue
                 description = "Tertiary light attack / reload button.",
+                emoji = "✖️",
+                symbol = CategorySymbol.GAMEPAD,
                 promptHint = "Free silhouette, energetic cyan/blue glow, crisp industrial styling."
             ),
             SubCategoryDefinition(
@@ -67,6 +73,8 @@ object CategoryManager {
                 defaultHeightDp = 96,
                 accentColorArgb = 0xFFFBBF24L, // Neon Yellow / Amber
                 description = "Quaternary heavy attack / special button.",
+                emoji = "🆈",
+                symbol = CategorySymbol.GAMEPAD,
                 promptHint = "Free silhouette, luminous amber highlights, polished top chamfer."
             )
         )
@@ -93,6 +101,8 @@ object CategoryManager {
                 defaultHeightDp = 140,
                 accentColorArgb = 0xFF22D3EEL, // Neon Cyan
                 description = "Unified 4-way cross directional pad.",
+                emoji = "🧭",
+                symbol = CategorySymbol.DPAD,
                 promptHint = "Central dish or pivot well with 4 directional arms, tactile directional arrows."
             ),
             SubCategoryDefinition(
@@ -106,6 +116,8 @@ object CategoryManager {
                 defaultHeightDp = 80,
                 accentColorArgb = 0xFF22D3EEL,
                 description = "Individual upward directional button.",
+                emoji = "⬆️",
+                symbol = CategorySymbol.DPAD,
                 promptHint = "North-facing wedge or directional arrowhead, upward gradient highlight."
             ),
             SubCategoryDefinition(
@@ -119,6 +131,8 @@ object CategoryManager {
                 defaultHeightDp = 80,
                 accentColorArgb = 0xFF22D3EEL,
                 description = "Individual downward directional button.",
+                emoji = "⬇️",
+                symbol = CategorySymbol.DPAD,
                 promptHint = "South-facing wedge or directional arrowhead, bottom shadow drop."
             ),
             SubCategoryDefinition(
@@ -132,6 +146,8 @@ object CategoryManager {
                 defaultHeightDp = 80,
                 accentColorArgb = 0xFF22D3EEL,
                 description = "Individual leftward directional button.",
+                emoji = "⬅️",
+                symbol = CategorySymbol.DPAD,
                 promptHint = "West-facing wedge or directional arrowhead, left rim highlight."
             ),
             SubCategoryDefinition(
@@ -145,6 +161,8 @@ object CategoryManager {
                 defaultHeightDp = 80,
                 accentColorArgb = 0xFF22D3EEL,
                 description = "Individual rightward directional button.",
+                emoji = "➡️",
+                symbol = CategorySymbol.DPAD,
                 promptHint = "East-facing wedge or directional arrowhead, right rim highlight."
             )
         )
@@ -170,6 +188,8 @@ object CategoryManager {
                 defaultHeightDp = 140,
                 accentColorArgb = 0xFFA855F7L, // Neon Purple
                 description = "Left progressive analog trigger (aim / brake).",
+                emoji = "🎯",
+                symbol = CategorySymbol.TRIGGER,
                 promptHint = "Elongated trigger paddle, progressive pressure glow indicator, mechanical ribbing."
             ),
             SubCategoryDefinition(
@@ -183,6 +203,8 @@ object CategoryManager {
                 defaultHeightDp = 140,
                 accentColorArgb = 0xFFA855F7L,
                 description = "Right progressive analog trigger (fire / accelerate).",
+                emoji = "🎯",
+                symbol = CategorySymbol.TRIGGER,
                 promptHint = "Elongated trigger paddle, progressive pressure glow indicator, tactile rear notch."
             )
         )
@@ -208,6 +230,8 @@ object CategoryManager {
                 defaultHeightDp = 60,
                 accentColorArgb = 0xFF38BDF8L, // Sky Blue
                 description = "Left digital shoulder bumper.",
+                emoji = "🛡️",
+                symbol = CategorySymbol.BUMPER,
                 promptHint = "Horizontal ergonomic pill/capsule curve, top edge metallic reflection, tactile microswitch response."
             ),
             SubCategoryDefinition(
@@ -221,6 +245,8 @@ object CategoryManager {
                 defaultHeightDp = 60,
                 accentColorArgb = 0xFF38BDF8L,
                 description = "Right digital shoulder bumper.",
+                emoji = "🛡️",
+                symbol = CategorySymbol.BUMPER,
                 promptHint = "Horizontal ergonomic pill/capsule curve, top edge metallic reflection, tactile microswitch response."
             )
         )
@@ -246,6 +272,8 @@ object CategoryManager {
                 defaultHeightDp = 130,
                 accentColorArgb = 0xFF34D399L, // Neon Emerald
                 description = "Left 360° analog thumbstick (movement).",
+                emoji = "🕹️",
+                symbol = CategorySymbol.STICK,
                 promptHint = "Stationary spherical/radial gimbal base with inner socket shadow + floating 360-degree deflection thumb cap with concave grip and knurled ring."
             ),
             SubCategoryDefinition(
@@ -259,6 +287,8 @@ object CategoryManager {
                 defaultHeightDp = 130,
                 accentColorArgb = 0xFF34D399L,
                 description = "Right 360° analog thumbstick (camera/aim).",
+                emoji = "🕹️",
+                symbol = CategorySymbol.STICK,
                 promptHint = "Stationary spherical/radial gimbal base with inner socket shadow + floating 360-degree deflection thumb cap with concave grip and knurled ring."
             )
         )
@@ -285,6 +315,8 @@ object CategoryManager {
                 defaultHeightDp = 70,
                 accentColorArgb = 0xFF94A3B8L, // Slate Silver
                 description = "Pause / Options / Start button.",
+                emoji = "☰",
+                symbol = CategorySymbol.SYSTEM,
                 promptHint = "Compact pill or small disc with hamburger lines or forward glyph."
             ),
             SubCategoryDefinition(
@@ -298,6 +330,8 @@ object CategoryManager {
                 defaultHeightDp = 70,
                 accentColorArgb = 0xFF94A3B8L,
                 description = "Map / Back / Select button.",
+                emoji = "⧉",
+                symbol = CategorySymbol.SYSTEM,
                 promptHint = "Compact pill or small disc with overlapping squares or rewind glyph."
             ),
             SubCategoryDefinition(
@@ -311,6 +345,8 @@ object CategoryManager {
                 defaultHeightDp = 84,
                 accentColorArgb = 0xFFF59E0BL, // Nexus Amber
                 description = "Home / Xbox / PlayStation central guide button.",
+                emoji = "⨂",
+                symbol = CategorySymbol.HOME,
                 promptHint = "Large luminous orb or badge, glowing center insignia, prestigious bevel."
             ),
             SubCategoryDefinition(
@@ -324,6 +360,8 @@ object CategoryManager {
                 defaultHeightDp = 70,
                 accentColorArgb = 0xFF94A3B8L,
                 description = "Capture screenshot or video clip.",
+                emoji = "📤",
+                symbol = CategorySymbol.SYSTEM,
                 promptHint = "Minimalist utility button with broadcast or share glyph."
             ),
             SubCategoryDefinition(
@@ -337,6 +375,8 @@ object CategoryManager {
                 defaultHeightDp = 70,
                 accentColorArgb = 0xFFEC4899L, // Pink
                 description = "Hardware rapid-fire turbo switch.",
+                emoji = "⚡",
+                symbol = CategorySymbol.SYSTEM,
                 promptHint = "Lightning insignia with energetic magenta backlighting."
             ),
             SubCategoryDefinition(
@@ -350,6 +390,8 @@ object CategoryManager {
                 defaultHeightDp = 70,
                 accentColorArgb = 0xFF8B5CF6L, // Violet
                 description = "Toggle between custom layout profiles.",
+                emoji = "👤",
+                symbol = CategorySymbol.SYSTEM,
                 promptHint = "Switch/cycle icon with multi-state indicator LEDs."
             )
         )
@@ -375,6 +417,8 @@ object CategoryManager {
                 defaultHeightDp = 72,
                 accentColorArgb = 0xFFF59E0BL,
                 description = "Rear upper-left programmable paddle.",
+                emoji = "⚡",
+                symbol = CategorySymbol.MACRO,
                 promptHint = "Ergonomic angled wing or rear paddle shape with high-tactile snap."
             ),
             SubCategoryDefinition(
@@ -388,6 +432,8 @@ object CategoryManager {
                 defaultHeightDp = 72,
                 accentColorArgb = 0xFFF59E0BL,
                 description = "Rear upper-right programmable paddle.",
+                emoji = "⚡",
+                symbol = CategorySymbol.MACRO,
                 promptHint = "Ergonomic angled wing or rear paddle shape with high-tactile snap."
             ),
             SubCategoryDefinition(
@@ -401,6 +447,8 @@ object CategoryManager {
                 defaultHeightDp = 72,
                 accentColorArgb = 0xFFF59E0BL,
                 description = "Rear lower-left programmable paddle.",
+                emoji = "⚡",
+                symbol = CategorySymbol.MACRO,
                 promptHint = "Ergonomic angled wing or rear paddle shape with high-tactile snap."
             ),
             SubCategoryDefinition(
@@ -414,6 +462,8 @@ object CategoryManager {
                 defaultHeightDp = 72,
                 accentColorArgb = 0xFFF59E0BL,
                 description = "Rear lower-right programmable paddle.",
+                emoji = "⚡",
+                symbol = CategorySymbol.MACRO,
                 promptHint = "Ergonomic angled wing or rear paddle shape with high-tactile snap."
             )
         )
@@ -503,4 +553,28 @@ object CategoryManager {
             Pair(96, 96)
         }
     }
+
+    /**
+     * Get icon emoji for a control key (e.g. "A" -> "🅰️", "LT" -> "🎯").
+     */
+    fun getIconEmoji(key: String): String =
+        getControl(key)?.emoji ?: findCategoryForControl(key)?.emoji ?: "🎮"
+
+    /**
+     * Get CategorySymbol for a control key (e.g. "A" -> CategorySymbol.GAMEPAD, "LT" -> CategorySymbol.TRIGGER).
+     */
+    fun getIconSymbol(key: String): CategorySymbol =
+        getControl(key)?.symbol ?: findCategoryForControl(key)?.symbol ?: CategorySymbol.GAMEPAD
+
+    /**
+     * Get icon name for a control key (e.g. "SportsEsports", "Tune", "ControlCamera").
+     */
+    fun getIconName(key: String): String =
+        getIconSymbol(key).iconName
+
+    /**
+     * Get standard SVG path data for a control key.
+     */
+    fun getIconSvgPath(key: String): String =
+        getIconSymbol(key).svgPath
 }

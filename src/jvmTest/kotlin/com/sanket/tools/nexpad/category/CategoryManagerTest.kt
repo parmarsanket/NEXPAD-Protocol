@@ -109,4 +109,38 @@ class CategoryManagerTest {
         assertNotNull(dpad)
         assertTrue(dpad.keys.contains("CROSS"))
     }
+
+    @Test
+    fun testIconManagementAcrossAllCategoriesAndControls() {
+        val categories = CategoryManager.getAllCategories()
+        for (cat in categories) {
+            assertTrue(cat.emoji.isNotBlank(), "Category ${cat.id} has blank emoji")
+            assertTrue(cat.iconName.isNotBlank(), "Category ${cat.id} has blank iconName")
+            assertTrue(cat.svgPath.isNotBlank(), "Category ${cat.id} has blank svgPath")
+
+            for (ctrl in cat.controls) {
+                assertTrue(ctrl.emoji.isNotBlank(), "Control ${ctrl.key} has blank emoji")
+                assertTrue(ctrl.iconName.isNotBlank(), "Control ${ctrl.key} has blank iconName")
+                assertTrue(ctrl.svgPath.isNotBlank(), "Control ${ctrl.key} has blank svgPath")
+                assertEquals(ctrl.symbol.iconName, ctrl.iconName)
+                assertEquals(ctrl.symbol.svgPath, ctrl.svgPath)
+            }
+        }
+
+        // Test helper query APIs
+        assertEquals("🅰️", CategoryManager.getIconEmoji("A"))
+        assertEquals("🎯", CategoryManager.getIconEmoji("LT"))
+        assertEquals("🕹️", CategoryManager.getIconEmoji("LS"))
+        assertEquals("⨂", CategoryManager.getIconEmoji("GUIDE"))
+        assertEquals("⨂", CategoryManager.getIconEmoji("XBOX")) // via alias
+
+        assertEquals(CategorySymbol.GAMEPAD, CategoryManager.getIconSymbol("A"))
+        assertEquals(CategorySymbol.TRIGGER, CategoryManager.getIconSymbol("LT"))
+        assertEquals(CategorySymbol.HOME, CategoryManager.getIconSymbol("GUIDE"))
+        assertEquals(CategorySymbol.HOME, CategoryManager.getIconSymbol("HOME")) // via alias
+
+        assertEquals("SportsEsports", CategoryManager.getIconName("A"))
+        assertEquals("Tune", CategoryManager.getIconName("RT"))
+        assertTrue(CategoryManager.getIconSvgPath("A").startsWith("M21.58"))
+    }
 }
