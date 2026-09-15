@@ -1621,5 +1621,68 @@ LINE TWO</button>
         assertEquals(doc.canvas.layers.size, decoded.canvas.layers.size)
         assertEquals(doc.canvas.capLayerIndices, decoded.canvas.capLayerIndices, "Cap layer indices must survive binary serialization")
     }
+
+    @Test
+    fun testCompilerDiagnosticsAndWarnings() {
+        val unsupportedHtml = """
+            <style>
+              .test-btn {
+                width: 90px;
+                height: 90px;
+                background: #10121a;
+                mix-blend-mode: screen;
+                backdrop-filter: blur(5px);
+                display: grid;
+                filter: blur(2px) brightness(1.2);
+              }
+              .test-btn:active { transform: scale(0.92); }
+            </style>
+            <button class="test-btn" data-control="A" data-category="BUTTON" data-name="Test Warn">
+              <span>A</span>
+            </button>
+        """.trimIndent()
+
+        val result = NxprcPackager.compileWithWarnings(unsupportedHtml, id = "rc.test_warn", name = "Test Warn")
+        assertTrue(result.warnings.isNotEmpty(), "Warnings must be emitted for unsupported properties")
+        assertTrue(result.hasLosses, "Must report hasLosses == true due to mix-blend-mode / backdrop-filter")
+
+        val droppedCodes = result.warnings.filter { it.severity == WarningSeverity.DROPPED }.map { it.source }
+        assertTrue(droppedCodes.contains("mix-blend-mode"), "mix-blend-mode must trigger DROPPED warning")
+        assertTrue(droppedCodes.contains("backdrop-filter"), "backdrop-filter must trigger DROPPED warning")
+        assertTrue(droppedCodes.contains("grid"), "grid must trigger DROPPED warning")
+
+        val multiFilterWarning = result.warnings.firstOrNull { it.code == "FILTER_MULTI_FUNCTION" }
+        assertNotNull(multiFilterWarning, "Multi-function filter must trigger FILTER_MULTI_FUNCTION warning")
+
+        val summary = result.warningsSummary()
+        assertTrue(summary.contains("[DROPPED]"), "Summary must contain [DROPPED]")
+        assertTrue(summary.contains("[WARNING]"), "Summary must contain [WARNING]")
+
+        // Verify clean HTML emits zero warnings
+        val cleanHtml = """
+            <style>
+              .clean-btn {
+                width: 80px;
+                height: 80px;
+                border-radius: 50%;
+                background: radial-gradient(circle at 50% 50%, #00f0ff 0%, #003366 100%);
+                box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+              }
+              .clean-btn:active { transform: scale(0.92); }
+            </style>
+            <button class="clean-btn" data-control="B" data-category="BUTTON" data-name="Clean B">
+              <span>B</span>
+            </button>
+        """.trimIndent()
+
+        val cleanResult = NxprcPackager.compileWithWarnings(cleanHtml, id = "rc.clean_b", name = "Clean B")
+        assertFalse(cleanResult.hasLosses, "Clean HTML must not have losses")
+        assertTrue(cleanResult.warnings.isEmpty(), "Compliant HTML must emit zero warnings")
+
+        // Ensure compile() delegates seamlessly to document
+        val directDoc = NxprcPackager.compile(cleanHtml, id = "rc.clean_b", name = "Clean B")
+        assertEquals(cleanResult.document.manifest.id, directDoc.manifest.id)
+        assertEquals(cleanResult.document.canvas.layers.size, directDoc.canvas.layers.size)
+    }
 }
 

@@ -811,11 +811,14 @@ object NxprcCompiler {
             "transition" to "CSS transitions are not supported. The compiler uses spring physics for press interactions.",
             "mask" to "CSS mask is not supported. Use clip-path: polygon() or border-radius for shape masking.",
             "mask-image" to "CSS mask-image is not supported. Use clip-path: polygon() or border-radius.",
-            "perspective" to "CSS 3D perspective transforms are not supported. Use 2D transform only.",
-            "grid" to "CSS Grid layout is not supported. Use position:absolute with explicit px coordinates."
+            "perspective" to "CSS 3D perspective transforms are not supported. Use 2D transform only."
         )
         droppedProps.forEach { (prop, msg) ->
             if (props.containsKey(prop)) w.dropped("UNSUPPORTED_CSS_PROPERTY", msg, prop)
+        }
+
+        if (props.containsKey("grid") || props["display"]?.trim()?.equals("grid", ignoreCase = true) == true) {
+            w.dropped("UNSUPPORTED_CSS_PROPERTY", "CSS Grid layout is not supported. Use position:absolute with explicit px coordinates.", "grid")
         }
 
         // Warn on multi-function filter (only first function is parsed)

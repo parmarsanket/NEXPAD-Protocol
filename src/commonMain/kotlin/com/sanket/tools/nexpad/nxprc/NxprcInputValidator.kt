@@ -13,7 +13,7 @@ import com.sanket.tools.nexpad.category.CategoryManager
 internal object NxprcInputValidator {
 
     private val VALID_CATEGORIES = setOf(
-        "BUTTON", "DPAD", "JOYSTICK", "TRIGGER", "BUMPER", "HOME", "SYSTEM", "MACRO"
+        "BUTTON", "ABXY", "DPAD", "JOYSTICK", "STICK", "STICKS", "TRIGGER", "TRIGGERS", "BUMPER", "BUMPERS", "HOME", "SYSTEM", "MACRO", "MACROS"
     )
 
     fun validateHtml(html: String) {
@@ -49,13 +49,14 @@ internal object NxprcInputValidator {
     }
 
     /**
-     * HIGH 6 FIX: Validates that [defaultControl] is a key known to [CategoryManager].
+     * HIGH 6 FIX: Validates that [defaultControl] is a key or category known to [CategoryManager].
      * A blank value is allowed (compiler will auto-detect from HTML attributes or use the caller-supplied default).
      */
     fun validateControl(defaultControl: String) {
         if (defaultControl.isBlank()) return
-        require(CategoryManager.getControl(defaultControl) != null) {
-            "Unknown defaultControl key: \"$defaultControl\". Must be a valid CategoryManager key (A, B, X, Y, LT, RT, LB, RB, LS, RS, UP, DOWN, LEFT, RIGHT, START, BACK, GUIDE, …)"
+        val upper = defaultControl.uppercase()
+        require(CategoryManager.getControl(upper) != null || CategoryManager.getCategory(upper) != null || upper == "DPAD") {
+            "Unknown defaultControl key: \"$defaultControl\". Must be a valid CategoryManager key or category (A, B, X, Y, DPAD, LT, RT, LB, RB, LS, RS, UP, DOWN, LEFT, RIGHT, START, BACK, GUIDE, …)"
         }
     }
 }
