@@ -26,12 +26,12 @@ internal object NxprcInputValidator {
     }
 
     fun validateMetadata(id: String, name: String) {
-        // BUG 4 FIX: enforce non-blank — empty id previously passed validation silently
-        require(id.isNotBlank()) { "NXPRC id must not be blank" }
+        // Blank id/name is allowed at the packager level because the compiler
+        // auto-detects id and name from HTML data-id, class name, or data-name attributes.
+        // When explicitly supplied, length bounds are strictly enforced.
         require(id.length <= NxprcDefaults.MAX_ID_LENGTH) {
             "NXPRC id exceeds ${NxprcDefaults.MAX_ID_LENGTH} characters"
         }
-        require(name.isNotBlank()) { "NXPRC name must not be blank" }
         require(name.length <= NxprcDefaults.MAX_NAME_LENGTH) {
             "NXPRC name exceeds ${NxprcDefaults.MAX_NAME_LENGTH} characters"
         }
