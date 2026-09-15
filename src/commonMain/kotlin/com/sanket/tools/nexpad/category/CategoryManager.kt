@@ -488,6 +488,14 @@ object CategoryManager {
             put("XBOX", guide)
             put("HOME", guide)
         }
+        val ls = get("LS")
+        if (ls != null) {
+            put("L3", ls)
+        }
+        val rs = get("RS")
+        if (rs != null) {
+            put("R3", rs)
+        }
     }
 
     /**
@@ -531,12 +539,36 @@ object CategoryManager {
      * Resolves the default dimensions (widthDp, heightDp) for a given control key.
      */
     fun resolveDefaultDimensions(key: String): Pair<Int, Int> {
-        val ctrl = getControl(key)
-        return if (ctrl != null) {
-            Pair(ctrl.defaultWidthDp, ctrl.defaultHeightDp)
-        } else {
-            Pair(96, 96)
+        val upper = key.uppercase()
+        val ctrl = getControl(upper)
+        if (ctrl != null) {
+            return Pair(ctrl.defaultWidthDp, ctrl.defaultHeightDp)
         }
+        val cat = getCategory(upper)
+        if (cat != null) {
+            return when (cat.type) {
+                CategoryType.DPAD -> Pair(140, 140)
+                CategoryType.STICKS -> Pair(130, 130)
+                CategoryType.ABXY -> Pair(160, 160)
+                CategoryType.TRIGGERS -> Pair(110, 140)
+                CategoryType.BUMPERS -> Pair(120, 60)
+                CategoryType.SYSTEM -> Pair(70, 70)
+                CategoryType.MACROS -> Pair(72, 72)
+            }
+        }
+        return Pair(96, 96)
+    }
+
+    /**
+     * Resolves the single intrinsic maximum dimension (in dp) for scaling calculations.
+     * Centralized single source of truth for Button Studio, HUD, and Canvas preview rendering.
+     */
+    fun resolveIntrinsicMaxDim(key: String, customWidthDp: Int = 0, customHeightDp: Int = 0): Float {
+        if (customWidthDp > 0 && customHeightDp > 0) {
+            return maxOf(customWidthDp, customHeightDp).toFloat()
+        }
+        val (w, h) = resolveDefaultDimensions(key)
+        return maxOf(w, h, 1).toFloat()
     }
 
     /**

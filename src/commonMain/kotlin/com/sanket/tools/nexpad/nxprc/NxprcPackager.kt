@@ -14,6 +14,12 @@ object NxprcPackager {
 
     /**
      * Compiles raw HTML/CSS/SVG text into an NxprcDocument.
+     *
+     * @param html       Raw HTML/CSS/SVG source. Must be non-blank and < 2 MB.
+     * @param id         Manifest ID (e.g. "rc.cyber_hex_a"). Must be non-blank.
+     * @param name       Human-readable button name. Must be non-blank.
+     * @param category   One of: BUTTON, DPAD, JOYSTICK, TRIGGER, BUMPER, HOME, SYSTEM, MACRO.
+     * @param defaultControl  Control key (A, B, LT, RS, …). Blank = auto-detect from HTML attributes.
      */
     fun compile(
         html: String,
@@ -24,6 +30,8 @@ object NxprcPackager {
     ): NxprcDocument {
         NxprcInputValidator.validateHtml(html)
         NxprcInputValidator.validateMetadata(id, name)
+        NxprcInputValidator.validateCategory(category)
+        NxprcInputValidator.validateControl(defaultControl)
         return NxprcCompiler.compile(
             html = html,
             id = id,

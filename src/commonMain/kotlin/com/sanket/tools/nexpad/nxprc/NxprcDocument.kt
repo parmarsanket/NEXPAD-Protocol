@@ -168,48 +168,64 @@ sealed class CanvasLayer {
         val fills: List<FillBrush> = emptyList(),
         val stroke: StrokeStyle? = null,
         val boxShadows: List<BoxShadowDef> = emptyList(),
+        // Flat legacy fields kept for JSON backward-compat (old files encoded them individually).
+        // New code must NOT set these directly — write via [transform] and [effects] instead.
+        // [effectiveTransform] always resolves the canonical authoritative TransformDef.
         val filter: FilterDef = FilterDef(),
         val opacity: Float = 1.0f,
+        @Deprecated("Use transform.rotationDegrees", ReplaceWith("transform.rotationDegrees"))
         val rotationDegrees: Float = 0f,
+        @Deprecated("Use transform.offsetXRatio", ReplaceWith("transform.offsetXRatio"))
         val offsetXRatio: Float = 0f,
+        @Deprecated("Use transform.offsetYRatio", ReplaceWith("transform.offsetYRatio"))
         val offsetYRatio: Float = 0f,
+        @Deprecated("Use transform.scaleX", ReplaceWith("transform.scaleX"))
         val scaleX: Float = 1.0f,
+        @Deprecated("Use transform.scaleY", ReplaceWith("transform.scaleY"))
         val scaleY: Float = 1.0f,
+        @Deprecated("Use transform.skewX", ReplaceWith("transform.skewX"))
         val skewX: Float = 0f,
+        @Deprecated("Use transform.skewY", ReplaceWith("transform.skewY"))
         val skewY: Float = 0f,
+        @Deprecated("Use transform.originXRatio", ReplaceWith("transform.originXRatio"))
         val originXRatio: Float = 0.5f,
+        @Deprecated("Use transform.originYRatio", ReplaceWith("transform.originYRatio"))
         val originYRatio: Float = 0.5f,
+        @Deprecated("Use transform.isRotating", ReplaceWith("transform.isRotating"))
         val isRotating: Boolean = false,
-        val transform: TransformDef = TransformDef(
-            rotationDegrees = rotationDegrees,
-            offsetXRatio = offsetXRatio,
-            offsetYRatio = offsetYRatio,
-            scaleX = scaleX,
-            scaleY = scaleY,
-            skewX = skewX,
-            skewY = skewY,
-            originXRatio = originXRatio,
-            originYRatio = originYRatio,
-            isRotating = isRotating
-        ),
+        /**
+         * HIGH 3 FIX: [transform] is the single authoritative source of transform data.
+         * The flat fields above exist solely for backward-compat JSON deserialization.
+         * Always read transforms via [effectiveTransform].
+         */
+        val transform: TransformDef = TransformDef(),
         val effects: EffectsDef = EffectsDef(
             opacity = opacity,
             filter = filter
         )
     ) : CanvasLayer() {
+        /**
+         * Returns the canonical transform for this layer.
+         * Priority order (HIGH 3 FIX):
+         *   1. [transform] if it has any non-default values (newly encoded documents).
+         *   2. Flat legacy fields (old documents encoded before the nested TransformDef existed).
+         * This ensures both old and new .nxprc files decode correctly.
+         */
+        @Suppress("DEPRECATION")
         val effectiveTransform: TransformDef
-            get() = if (transform.hasTransform || transform != TransformDef()) transform else TransformDef(
-                rotationDegrees = rotationDegrees,
-                offsetXRatio = offsetXRatio,
-                offsetYRatio = offsetYRatio,
-                scaleX = scaleX,
-                scaleY = scaleY,
-                skewX = skewX,
-                skewY = skewY,
-                originXRatio = originXRatio,
-                originYRatio = originYRatio,
-                isRotating = isRotating
-            )
+            get() = if (transform.hasTransform) transform
+                    else TransformDef(
+                        rotationDegrees = rotationDegrees,
+                        offsetXRatio = offsetXRatio,
+                        offsetYRatio = offsetYRatio,
+                        scaleX = scaleX,
+                        scaleY = scaleY,
+                        skewX = skewX,
+                        skewY = skewY,
+                        originXRatio = originXRatio,
+                        originYRatio = originYRatio,
+                        isRotating = isRotating
+                    )
 
         val effectiveEffects: EffectsDef
             get() = if (effects != EffectsDef()) effects else EffectsDef(
@@ -240,39 +256,43 @@ sealed class CanvasLayer {
         val stroke: StrokeStyle? = StrokeStyle(NxprcDefaults.DEFAULT_ACCENT_COLOR, 2f),
         val filter: FilterDef = FilterDef(),
         val opacity: Float = 1.0f,
+        // Flat legacy fields — kept for backward-compat JSON deserialization only.
+        @Deprecated("Use transform.rotationDegrees", ReplaceWith("transform.rotationDegrees"))
         val rotationDegrees: Float = 0f,
+        @Deprecated("Use transform.offsetXRatio", ReplaceWith("transform.offsetXRatio"))
         val offsetXRatio: Float = 0f,
+        @Deprecated("Use transform.offsetYRatio", ReplaceWith("transform.offsetYRatio"))
         val offsetYRatio: Float = 0f,
         val widthRatio: Float = 1.0f,
         val heightRatio: Float = 1.0f,
+        @Deprecated("Use transform.scaleX", ReplaceWith("transform.scaleX"))
         val scaleX: Float = 1.0f,
+        @Deprecated("Use transform.scaleY", ReplaceWith("transform.scaleY"))
         val scaleY: Float = 1.0f,
+        @Deprecated("Use transform.originXRatio", ReplaceWith("transform.originXRatio"))
         val originXRatio: Float = 0.5f,
+        @Deprecated("Use transform.originYRatio", ReplaceWith("transform.originYRatio"))
         val originYRatio: Float = 0.5f,
-        val transform: TransformDef = TransformDef(
-            rotationDegrees = rotationDegrees,
-            offsetXRatio = offsetXRatio,
-            offsetYRatio = offsetYRatio,
-            scaleX = scaleX,
-            scaleY = scaleY,
-            originXRatio = originXRatio,
-            originYRatio = originYRatio
-        ),
+        /** Single authoritative source of transform data. Read via [effectiveTransform]. */
+        val transform: TransformDef = TransformDef(),
         val effects: EffectsDef = EffectsDef(
             opacity = opacity,
             filter = filter
         )
     ) : CanvasLayer() {
+        /** LOW 3 FIX: use hasTransform (not structural equality) — same fix as BoxLayer. */
+        @Suppress("DEPRECATION")
         val effectiveTransform: TransformDef
-            get() = if (transform.hasTransform || transform != TransformDef()) transform else TransformDef(
-                rotationDegrees = rotationDegrees,
-                offsetXRatio = offsetXRatio,
-                offsetYRatio = offsetYRatio,
-                scaleX = scaleX,
-                scaleY = scaleY,
-                originXRatio = originXRatio,
-                originYRatio = originYRatio
-            )
+            get() = if (transform.hasTransform) transform
+                    else TransformDef(
+                        rotationDegrees = rotationDegrees,
+                        offsetXRatio = offsetXRatio,
+                        offsetYRatio = offsetYRatio,
+                        scaleX = scaleX,
+                        scaleY = scaleY,
+                        originXRatio = originXRatio,
+                        originYRatio = originYRatio
+                    )
 
         val effectiveEffects: EffectsDef
             get() = if (effects != EffectsDef()) effects else EffectsDef(
