@@ -20,7 +20,16 @@ object NxprcCompiler {
         name: String,
         category: String = "BUTTON",
         defaultControl: String = "A"
-    ): NxprcDocument {
+    ): NxprcDocument = compileWithWarnings(html, id, name, category, defaultControl).document
+
+    fun compileWithWarnings(
+        html: String,
+        id: String,
+        name: String,
+        category: String = "BUTTON",
+        defaultControl: String = "A"
+    ): CompileResult {
+        val warnings = CompileWarningCollector()
         val parsed = HtmlDomParser.parse(html)
         val stylesheet = CssTokenizer.parse(parsed.embeddedCss)
 
@@ -58,6 +67,9 @@ object NxprcCompiler {
         val baseProps = style.base
         val beforeStyle = style.before
         val afterStyle = style.after
+
+        // Scan for CSS properties the compiler cannot represent and emit warnings
+        scanUnsupportedCssProps(baseProps, warnings)
 
         val buttonWidth = GeometryParser.parsePixelOrPercent(baseProps["width"], 100f, 100f).coerceAtLeast(1f)
         val buttonHeight = GeometryParser.parsePixelOrPercent(baseProps["height"], 100f, 100f).coerceAtLeast(1f)
@@ -750,7 +762,7 @@ object NxprcCompiler {
             }
         } else emptyList()
 
-        return NxprcDocument(
+        val document = NxprcDocument(
             manifest = NxprcManifest(
                 id = resolvedId,
                 name = resolvedName,
@@ -783,5 +795,49 @@ object NxprcCompiler {
                 tracks = allTracks
             )
         )
+
+        return CompileResult(document, warnings.build())
+    }
+
+    /**
+     * Scans computed CSS properties for values the NXPRC engine cannot represent.
+     * Emits DROPPED warnings for each unsupported property and warnings for lossy conversions.
+     */
+    private fun scanUnsupportedCssProps(props: Map<String, String>, w: CompileWarningCollector) {
+        val droppedProps = mapOf(
+            "mix-blend-mode" to "mix-blend-mode is not supported by the NXPRC renderer. Layer will render without blending.",
+            "backdrop-filter" to "backdrop-filter is not supported. Use CSS filter: or SVG <filter> instead.",
+            "animation" to "CSS @keyframes animations are not supported. Use --spring-stiffness/--spring-damping for physics, or SVG animations.",
+            "transition" to "CSS transitions are not supported. The compiler uses spring physics for press interactions.",
+            "mask" to "CSS mask is not supported. Use clip-path: polygon() or border-radius for shape masking.",
+            "mask-image" to "CSS mask-image is not supported. Use clip-path: polygon() or border-radius.",
+            "perspective" to "CSS 3D perspective transforms are not supported. Use 2D transform only.",
+            "grid" to "CSS Grid layout is not supported. Use position:absolute with explicit px coordinates."
+        )
+        droppedProps.forEach { (prop, msg) ->
+            if (props.containsKey(prop)) w.dropped("UNSUPPORTED_CSS_PROPERTY", msg, prop)
+        }
+
+        // Warn on multi-function filter (only first function is parsed)
+        val filterVal = props["filter"]
+        if (filterVal != null && filterVal.contains(")") &&
+            filterVal.indexOf(")") < filterVal.lastIndexOf("(")
+        ) {
+            w.warn(
+                "FILTER_MULTI_FUNCTION",
+                "Multiple CSS filter functions detected. Only the first supported function is compiled. Use SVG <filter> graphs for compound effects.",
+                "filter: $filterVal"
+            )
+        }
+
+        // Info on conic-gradient with many stops
+        val bg = props["background"] ?: props["background-image"] ?: ""
+        if (bg.contains("conic-gradient") && bg.count { it == ',' } > 8) {
+            w.info(
+                "CONIC_GRADIENT_MANY_STOPS",
+                "conic-gradient with many color stops may reduce rendering performance. Consider an SVG radialGradient paint server instead.",
+                "background"
+            )
+        }
     }
 }

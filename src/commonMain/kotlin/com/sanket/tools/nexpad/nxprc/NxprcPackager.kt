@@ -13,13 +13,8 @@ import com.sanket.tools.nexpad.nxprc.engine.compiler.NxprcCompiler
 object NxprcPackager {
 
     /**
-     * Compiles raw HTML/CSS/SVG text into an NxprcDocument.
-     *
-     * @param html       Raw HTML/CSS/SVG source. Must be non-blank and < 2 MB.
-     * @param id         Manifest ID (e.g. "rc.cyber_hex_a"). Must be non-blank.
-     * @param name       Human-readable button name. Must be non-blank.
-     * @param category   One of: BUTTON, DPAD, JOYSTICK, TRIGGER, BUMPER, HOME, SYSTEM, MACRO.
-     * @param defaultControl  Control key (A, B, LT, RS, …). Blank = auto-detect from HTML attributes.
+     * Compiles raw HTML/CSS/SVG text into an [NxprcDocument].
+     * For detailed compiler warnings regarding dropped/approximated CSS, use [compileWithWarnings].
      */
     fun compile(
         html: String,
@@ -27,12 +22,30 @@ object NxprcPackager {
         name: String = "Custom Button",
         category: String = "BUTTON",
         defaultControl: String = "A"
-    ): NxprcDocument {
+    ): NxprcDocument = compileWithWarnings(
+        html = html,
+        id = id,
+        name = name,
+        category = category,
+        defaultControl = defaultControl
+    ).document
+
+    /**
+     * Compiles raw HTML/CSS/SVG text into a [CompileResult] containing the [NxprcDocument]
+     * and any compiler warnings for CSS properties that were dropped or approximated.
+     */
+    fun compileWithWarnings(
+        html: String,
+        id: String = "rc.custom",
+        name: String = "Custom Button",
+        category: String = "BUTTON",
+        defaultControl: String = "A"
+    ): CompileResult {
         NxprcInputValidator.validateHtml(html)
         NxprcInputValidator.validateMetadata(id, name)
         NxprcInputValidator.validateCategory(category)
         NxprcInputValidator.validateControl(defaultControl)
-        return NxprcCompiler.compile(
+        return NxprcCompiler.compileWithWarnings(
             html = html,
             id = id,
             name = name,

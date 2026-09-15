@@ -24,6 +24,41 @@ data class NxprcDocument(
     }
 }
 
+/** Severity level for a compiler diagnostic. */
+enum class WarningSeverity { INFO, WARNING, DROPPED }
+
+/**
+ * A diagnostic emitted during HTML→NXPRC compilation.
+ * Surfaces CSS properties that were silently ignored, lossy conversions, or fallback decisions.
+ */
+data class CompileWarning(
+    val severity: WarningSeverity,
+    val code: String,
+    val message: String,
+    val source: String = ""
+)
+
+/**
+ * Result of a full HTML→NXPRC compilation.
+ * Always contains the compiled [document]. Any [warnings] surfaces CSS properties
+ * that were silently dropped or approximated during compilation.
+ * An empty [warnings] list means the HTML compiled with full fidelity.
+ */
+data class CompileResult(
+    val document: NxprcDocument,
+    val warnings: List<CompileWarning> = emptyList()
+) {
+    /** True if any DROPPED-severity warnings were emitted (CSS fully lost). */
+    val hasLosses: Boolean get() = warnings.any { it.severity == WarningSeverity.DROPPED }
+
+    /** Formatted summary for display in the UI or AI retry prompts. */
+    fun warningsSummary(): String = if (warnings.isEmpty()) ""
+        else warnings.joinToString("\n") {
+            "[${it.severity}] ${it.code}: ${it.message}" +
+            if (it.source.isNotEmpty()) " (source: ${it.source})" else ""
+        }
+}
+
 @Serializable
 data class SpringPhysicsDef(
     val dampingRatio: Float = 0.75f,
