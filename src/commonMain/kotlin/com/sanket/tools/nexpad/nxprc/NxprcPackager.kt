@@ -1,5 +1,6 @@
 package com.sanket.tools.nexpad.nxprc
 
+import com.sanket.tools.nexpad.model.NexpadKeys
 import com.sanket.tools.nexpad.nxprc.engine.compiler.NxprcCompiler
 
 /**
@@ -20,8 +21,8 @@ object NxprcPackager {
         html: String,
         id: String = "rc.custom",
         name: String = "Custom Button",
-        category: String = "BUTTON",
-        defaultControl: String = "A"
+        category: String = NxprcCategory.BUTTON.id,
+        defaultControl: String = NexpadKeys.A
     ): NxprcDocument = compileWithWarnings(
         html = html,
         id = id,
@@ -38,8 +39,8 @@ object NxprcPackager {
         html: String,
         id: String = "rc.custom",
         name: String = "Custom Button",
-        category: String = "BUTTON",
-        defaultControl: String = "A"
+        category: String = NxprcCategory.BUTTON.id,
+        defaultControl: String = NexpadKeys.A
     ): CompileResult {
         NxprcInputValidator.validateHtml(html)
         NxprcInputValidator.validateMetadata(id, name)

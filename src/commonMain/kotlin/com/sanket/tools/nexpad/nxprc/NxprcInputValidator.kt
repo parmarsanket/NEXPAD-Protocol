@@ -2,6 +2,7 @@ package com.sanket.tools.nexpad.nxprc
 
 import com.sanket.tools.nexpad.category.CategoryManager
 import com.sanket.tools.nexpad.category.CategoryType
+import com.sanket.tools.nexpad.category.ControlKey
 
 /**
  * Validates public compiler inputs before parsing untrusted HTML/CSS.
@@ -65,7 +66,7 @@ internal object NxprcInputValidator {
     fun validateControl(defaultControl: String) {
         if (defaultControl.isBlank()) return
         val upper = defaultControl.uppercase()
-        require(CategoryManager.getControl(upper) != null || CategoryManager.getCategory(upper) != null || upper == "DPAD") {
+        require(CategoryManager.getControl(upper) != null || CategoryManager.getCategory(upper) != null || upper == ControlKey.DPAD.key) {
             "Unknown defaultControl key: \"$defaultControl\". Must be a valid CategoryManager key or category (A, B, X, Y, DPAD, LT, RT, LB, RB, LS, RS, UP, DOWN, LEFT, RIGHT, START, BACK, GUIDE, …)"
         }
     }

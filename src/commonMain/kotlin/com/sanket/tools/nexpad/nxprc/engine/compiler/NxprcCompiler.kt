@@ -1,5 +1,6 @@
 package com.sanket.tools.nexpad.nxprc.engine.compiler
 
+import com.sanket.tools.nexpad.model.NexpadKeys
 import com.sanket.tools.nexpad.nxprc.*
 import com.sanket.tools.nexpad.nxprc.engine.css.CssCascadeResolver
 import com.sanket.tools.nexpad.nxprc.engine.css.CssTokenizer
@@ -18,16 +19,16 @@ object NxprcCompiler {
         html: String,
         id: String,
         name: String,
-        category: String = "BUTTON",
-        defaultControl: String = "A"
+        category: String = NxprcCategory.BUTTON.id,
+        defaultControl: String = NexpadKeys.A
     ): NxprcDocument = compileWithWarnings(html, id, name, category, defaultControl).document
 
     fun compileWithWarnings(
         html: String,
         id: String,
         name: String,
-        category: String = "BUTTON",
-        defaultControl: String = "A"
+        category: String = NxprcCategory.BUTTON.id,
+        defaultControl: String = NexpadKeys.A
     ): CompileResult {
         val warnings = CompileWarningCollector()
         val parsed = HtmlDomParser.parse(html)
@@ -578,8 +579,8 @@ object NxprcCompiler {
         if (!centerGlyphAdded) {
             val explicitText = primaryNode.findFirstText()
             val hasChildElements = primaryNode.children.any { it.tag != "#text" && it.tag != "style" }
-            val suppressFallbackText = autoCategory.equals("JOYSTICK", ignoreCase = true) ||
-                ((autoCategory.equals("SYSTEM", ignoreCase = true) || autoCategory.equals("DPAD", ignoreCase = true)) && hasChildElements)
+            val suppressFallbackText = autoCategory.equals(NxprcCategory.JOYSTICK.id, ignoreCase = true) ||
+                ((autoCategory.equals(NxprcCategory.SYSTEM.id, ignoreCase = true) || autoCategory.equals(NxprcCategory.DPAD.id, ignoreCase = true)) && hasChildElements)
 
             val centerText = if (suppressFallbackText) {
                 explicitText
