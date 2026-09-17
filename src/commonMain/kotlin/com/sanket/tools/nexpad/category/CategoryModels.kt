@@ -220,7 +220,7 @@ enum class ControlKey(
         CategoryType.SYSTEM, ComponentType.SYSTEM, "Share / Capture", "System Share Button", "rc.sys_share",
         70, 70, 0xFF94A3B8L, "Capture screenshot or video clip.", "📤", CategorySymbol.SYSTEM,
         promptHint = "Minimalist utility button with broadcast or share glyph.",
-        aliases = setOf("CAPTURE")
+        aliases = setOf("CAPTURE", "SCREENSHOT")
     ),
     TURBO(
         CategoryType.SYSTEM, ComponentType.SYSTEM, "Turbo", "Rapid Turbo Trigger", "rc.sys_turbo",
