@@ -137,4 +137,95 @@ class CategoryManagerTest {
         assertEquals("Tune", CategoryManager.getIconName("RT"))
         assertTrue(CategoryManager.getIconSvgPath("A").startsWith("M21.58"))
     }
+
+    @Test
+    fun testCategoryTypeFromIdentifier() {
+        assertEquals(CategoryType.ABXY, CategoryType.fromIdentifier("BUTTON"))
+        assertEquals(CategoryType.ABXY, CategoryType.fromIdentifier("BUTTONS"))
+        assertEquals(CategoryType.ABXY, CategoryType.fromIdentifier("ACTION"))
+        assertEquals(CategoryType.ABXY, CategoryType.fromIdentifier("A"))
+
+        assertEquals(CategoryType.TRIGGERS, CategoryType.fromIdentifier("TRIGGER"))
+        assertEquals(CategoryType.TRIGGERS, CategoryType.fromIdentifier("TRIGGERS"))
+        assertEquals(CategoryType.TRIGGERS, CategoryType.fromIdentifier("LT"))
+        assertEquals(CategoryType.TRIGGERS, CategoryType.fromIdentifier("L2"))
+
+        assertEquals(CategoryType.BUMPERS, CategoryType.fromIdentifier("BUMPER"))
+        assertEquals(CategoryType.BUMPERS, CategoryType.fromIdentifier("BUMPERS"))
+        assertEquals(CategoryType.BUMPERS, CategoryType.fromIdentifier("LB"))
+        assertEquals(CategoryType.BUMPERS, CategoryType.fromIdentifier("L1"))
+
+        assertEquals(CategoryType.STICKS, CategoryType.fromIdentifier("JOYSTICK"))
+        assertEquals(CategoryType.STICKS, CategoryType.fromIdentifier("STICKS"))
+        assertEquals(CategoryType.STICKS, CategoryType.fromIdentifier("STICK"))
+        assertEquals(CategoryType.STICKS, CategoryType.fromIdentifier("LS"))
+        assertEquals(CategoryType.STICKS, CategoryType.fromIdentifier("L3"))
+
+        assertEquals(CategoryType.DPAD, CategoryType.fromIdentifier("DPAD"))
+        assertEquals(CategoryType.DPAD, CategoryType.fromIdentifier("CROSS"))
+        assertEquals(CategoryType.DPAD, CategoryType.fromIdentifier("UP"))
+
+        assertEquals(CategoryType.MACROS, CategoryType.fromIdentifier("MACRO"))
+        assertEquals(CategoryType.MACROS, CategoryType.fromIdentifier("MACROS"))
+        assertEquals(CategoryType.MACROS, CategoryType.fromIdentifier("M1"))
+
+        assertEquals(CategoryType.SYSTEM, CategoryType.fromIdentifier("SYSTEM"))
+        assertEquals(CategoryType.SYSTEM, CategoryType.fromIdentifier("HOME"))
+        assertEquals(CategoryType.SYSTEM, CategoryType.fromIdentifier("GUIDE"))
+    }
+
+    @Test
+    fun testCategoryManagerGetCategoryResolvesAliases() {
+        assertEquals(CategoryType.ABXY, CategoryManager.getCategory("BUTTON")?.type)
+        assertEquals(CategoryType.ABXY, CategoryManager.getCategory("button")?.type)
+        assertEquals(CategoryType.TRIGGERS, CategoryManager.getCategory("TRIGGER")?.type)
+        assertEquals(CategoryType.TRIGGERS, CategoryManager.getCategory("TRIGGERS")?.type)
+        assertEquals(CategoryType.BUMPERS, CategoryManager.getCategory("BUMPER")?.type)
+        assertEquals(CategoryType.BUMPERS, CategoryManager.getCategory("BUMPERS")?.type)
+        assertEquals(CategoryType.STICKS, CategoryManager.getCategory("JOYSTICK")?.type)
+        assertEquals(CategoryType.STICKS, CategoryManager.getCategory("STICK")?.type)
+        assertEquals(CategoryType.MACROS, CategoryManager.getCategory("MACRO")?.type)
+    }
+
+    @Test
+    fun testCategoryManagerGetControlsForCategoryWithAliases() {
+        val buttonControls = CategoryManager.getControlsForCategory("BUTTON")
+        assertEquals(listOf("A", "B", "X", "Y"), buttonControls.map { it.key })
+
+        val triggerControls = CategoryManager.getControlsForCategory("TRIGGER")
+        assertEquals(listOf("LT", "RT"), triggerControls.map { it.key })
+
+        val stickControls = CategoryManager.getControlsForCategory("JOYSTICK")
+        assertEquals(listOf("LS", "RS"), stickControls.map { it.key })
+    }
+
+    @Test
+    fun testCategoryDefinitionKeysAndSubcategories() {
+        val triggers = CategoryManager.getCategory(CategoryType.TRIGGERS)
+        assertEquals(triggers.controls, triggers.subCategories)
+        assertTrue(triggers.keys.containsAll(listOf("LT", "RT", "L2", "R2", "TRIGGER", "TRIGGERS", "ANALOG_TRIGGER")))
+
+        val bumpers = CategoryManager.getCategory(CategoryType.BUMPERS)
+        assertEquals(bumpers.controls, bumpers.subCategories)
+        assertTrue(bumpers.keys.containsAll(listOf("LB", "RB", "L1", "R1", "BUMPER", "BUMPERS", "SHOULDER")))
+
+        val sticks = CategoryManager.getCategory(CategoryType.STICKS)
+        assertTrue(sticks.keys.containsAll(listOf("LS", "RS", "L3", "R3", "JOYSTICK", "STICK", "STICKS")))
+    }
+
+    @Test
+    fun testNxprcCategoryBidirectionalMapping() {
+        assertEquals(CategoryType.ABXY, com.sanket.tools.nexpad.nxprc.NxprcCategory.BUTTON.categoryType)
+        assertEquals(CategoryType.DPAD, com.sanket.tools.nexpad.nxprc.NxprcCategory.DPAD.categoryType)
+        assertEquals(CategoryType.TRIGGERS, com.sanket.tools.nexpad.nxprc.NxprcCategory.TRIGGER.categoryType)
+        assertEquals(CategoryType.BUMPERS, com.sanket.tools.nexpad.nxprc.NxprcCategory.BUMPER.categoryType)
+        assertEquals(CategoryType.STICKS, com.sanket.tools.nexpad.nxprc.NxprcCategory.JOYSTICK.categoryType)
+        assertEquals(CategoryType.SYSTEM, com.sanket.tools.nexpad.nxprc.NxprcCategory.SYSTEM.categoryType)
+        assertEquals(CategoryType.MACROS, com.sanket.tools.nexpad.nxprc.NxprcCategory.MACRO.categoryType)
+
+        assertEquals(com.sanket.tools.nexpad.nxprc.NxprcCategory.TRIGGER, com.sanket.tools.nexpad.nxprc.NxprcCategory.fromId("TRIGGERS"))
+        assertEquals(com.sanket.tools.nexpad.nxprc.NxprcCategory.JOYSTICK, com.sanket.tools.nexpad.nxprc.NxprcCategory.fromId("STICKS"))
+        assertEquals(com.sanket.tools.nexpad.nxprc.NxprcCategory.BUMPER, com.sanket.tools.nexpad.nxprc.NxprcCategory.fromId("BUMPERS"))
+        assertEquals(com.sanket.tools.nexpad.nxprc.NxprcCategory.TRIGGER, com.sanket.tools.nexpad.nxprc.NxprcCategory.fromId("LT"))
+    }
 }

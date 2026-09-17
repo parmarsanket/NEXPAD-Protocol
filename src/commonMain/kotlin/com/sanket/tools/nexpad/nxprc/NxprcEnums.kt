@@ -1,5 +1,7 @@
 package com.sanket.tools.nexpad.nxprc
 
+import com.sanket.tools.nexpad.category.CategoryType
+
 /**
  * Strongly-typed enumeration of supported canvas layer shape types.
  * Used by [CanvasLayer.BoxLayer.shapeType] and [CanvasLayer.GradientShape.shapeType].
@@ -71,8 +73,37 @@ enum class NxprcCategory(val id: String) {
     SYSTEM("SYSTEM"),
     MACRO("MACRO");
 
+    /** Multiplatform top-level category mapping. */
+    val categoryType: CategoryType get() = when (this) {
+        BUTTON -> CategoryType.ABXY
+        DPAD -> CategoryType.DPAD
+        JOYSTICK -> CategoryType.STICKS
+        TRIGGER -> CategoryType.TRIGGERS
+        BUMPER -> CategoryType.BUMPERS
+        HOME, SYSTEM -> CategoryType.SYSTEM
+        MACRO -> CategoryType.MACROS
+    }
+
     companion object {
-        fun fromId(id: String): NxprcCategory =
-            entries.firstOrNull { it.id == id.uppercase() } ?: BUTTON
+        /**
+         * Resolves any identifier or alias (e.g. "BUTTON", "TRIGGER", "TRIGGERS", "STICKS", "DPAD", "LT")
+         * to its canonical [NxprcCategory]. Falls back to [BUTTON] on unknown inputs.
+         */
+        fun fromId(id: String): NxprcCategory {
+            val upper = id.uppercase()
+            entries.firstOrNull { it.id == upper }?.let { return it }
+
+            return CategoryType.fromIdentifier(id)?.let { cat ->
+                when (cat) {
+                    CategoryType.ABXY -> BUTTON
+                    CategoryType.DPAD -> DPAD
+                    CategoryType.STICKS -> JOYSTICK
+                    CategoryType.TRIGGERS -> TRIGGER
+                    CategoryType.BUMPERS -> BUMPER
+                    CategoryType.SYSTEM -> SYSTEM
+                    CategoryType.MACROS -> MACRO
+                }
+            } ?: BUTTON
+        }
     }
 }

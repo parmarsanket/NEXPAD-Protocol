@@ -60,20 +60,76 @@ enum class CategoryType(
     /** Category-level aliases (e.g. SYSTEM answers to "XBOX"/"HOME" even before picking a control). */
     val aliasKeys: Set<String> = emptySet()
 ) : IconBearing {
-    ABXY("ABXY", "🎮", CategorySymbol.GAMEPAD, "Action button cluster for primary combat and interaction."),
-    DPAD("D-Pad", "🧭", CategorySymbol.DPAD, "Directional navigation cardinal buttons.", aliasKeys = setOf("CROSS")),
-    TRIGGERS("Triggers", "🎯", CategorySymbol.TRIGGER, "Analog linear pressure triggers with progressive deflection."),
-    BUMPERS("Bumpers", "🛡️", CategorySymbol.BUMPER, "Curved digital shoulder bumpers with micro-switch click."),
-    STICKS("Sticks", "🕹️", CategorySymbol.STICK, "Dual 360-degree analog sticks with concave thumb grip."),
+    ABXY(
+        "ABXY", "🎮", CategorySymbol.GAMEPAD,
+        "Action button cluster for primary combat and interaction.",
+        aliasKeys = setOf("BUTTON", "BUTTONS", "ACTION", "FACE", "FACE_BUTTONS")
+    ),
+    DPAD(
+        "D-Pad", "🧭", CategorySymbol.DPAD,
+        "Directional navigation cardinal buttons.",
+        aliasKeys = setOf("CROSS", "DIRECTIONAL", "DIRECTIONAL_PAD", "D_PAD", "DPAD")
+    ),
+    TRIGGERS(
+        "Triggers", "🎯", CategorySymbol.TRIGGER,
+        "Analog linear pressure triggers with progressive deflection.",
+        aliasKeys = setOf("TRIGGER", "ANALOG_TRIGGER", "TRIGGERS", "ANALOG")
+    ),
+    BUMPERS(
+        "Bumpers", "🛡️", CategorySymbol.BUMPER,
+        "Curved digital shoulder bumpers with micro-switch click.",
+        aliasKeys = setOf("BUMPER", "BUMPERS", "SHOULDER", "SHOULDERS")
+    ),
+    STICKS(
+        "Sticks", "🕹️", CategorySymbol.STICK,
+        "Dual 360-degree analog sticks with concave thumb grip.",
+        aliasKeys = setOf("STICK", "STICKS", "JOYSTICK", "JOYSTICKS", "THUMBSTICK", "THUMBSTICKS")
+    ),
     SYSTEM(
         "System", "⚙️", CategorySymbol.SYSTEM,
         "System, navigation, utility, and special function buttons.",
-        aliasKeys = setOf("VIEW", "MENU", "SELECT", "HOME", "XBOX")
+        aliasKeys = setOf("SYSTEM", "VIEW", "MENU", "SELECT", "HOME", "XBOX", "GUIDE", "START", "BACK", "OPTIONS")
     ),
-    MACROS("Macros", "⚡", CategorySymbol.MACRO, "Rear programmable paddles and custom macro actuators.");
+    MACROS(
+        "Macros", "⚡", CategorySymbol.MACRO,
+        "Rear programmable paddles and custom macro actuators.",
+        aliasKeys = setOf("MACRO", "MACROS", "PADDLE", "PADDLES", "REAR", "REAR_BUTTONS")
+    );
 
     val id: String get() = name
     val title: String get() = displayTitle
+
+    companion object {
+        private val LOOKUP: Map<String, CategoryType> = buildMap {
+            CategoryType.entries.forEach { cat ->
+                put(cat.name, cat)
+                put(cat.displayTitle.uppercase(), cat)
+                cat.aliasKeys.forEach { alias -> put(alias.uppercase(), cat) }
+            }
+        }
+
+        /**
+         * Resolves any identifier — enum name, display title, alias, or even a control key
+         * (e.g. "A" -> ABXY, "LT" -> TRIGGERS, "RB" -> BUMPERS) — to its [CategoryType].
+         */
+        fun fromIdentifier(identifier: String?): CategoryType? {
+            if (identifier.isNullOrBlank()) return null
+            val trimmed = identifier.trim().uppercase()
+
+            LOOKUP[trimmed]?.let { return it }
+
+            // Check if it's a ControlKey (e.g. "LT", "RB", "A", "DPAD", "L2")
+            ControlKey.fromIdentifier(trimmed)?.let { return it.categoryType }
+
+            val stripped = trimmed
+                .removePrefix("CATEGORY_")
+                .removePrefix("CAT_")
+                .removeSuffix("S")
+            LOOKUP[stripped]?.let { return it }
+
+            return null
+        }
+    }
 }
 
 /**
@@ -322,15 +378,26 @@ typealias SubCategoryDefinition = ControlKey
 data class CategoryDefinition(
     val type: CategoryType,
     val controls: List<ControlKey>
-) {
+) : IconBearing {
     val id: String get() = type.id
     val title: String get() = type.displayTitle
     val emoji: String get() = type.emoji
-    val symbol: CategorySymbol get() = type.symbol
-    val iconName: String get() = type.iconName
-    val svgPath: String get() = type.svgPath
+    override val symbol: CategorySymbol get() = type.symbol
     val isGroupCluster: Boolean get() = type.isGroupCluster
     val description: String get() = type.description
     val aliasKeys: Set<String> get() = type.aliasKeys
-    val keys: Set<String> = (controls.map { it.key } + type.aliasKeys).mapTo(mutableSetOf()) { it.uppercase() }
+
+    /** Canonical list of subcategories / controls belonging to this category. */
+    val subCategories: List<ControlKey> get() = controls
+
+    val keys: Set<String> = buildSet {
+        addAll(type.aliasKeys)
+        add(type.id)
+        add(type.displayTitle)
+        controls.forEach { ctrl ->
+            add(ctrl.key)
+            add(ctrl.defaultId)
+            addAll(ctrl.aliases)
+        }
+    }.mapTo(mutableSetOf()) { it.uppercase() }
 }

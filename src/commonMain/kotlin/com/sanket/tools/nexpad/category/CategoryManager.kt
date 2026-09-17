@@ -39,8 +39,12 @@ object CategoryManager {
     /** Get a category by its [CategoryType]. */
     fun getCategory(type: CategoryType): CategoryDefinition = CATEGORIES_BY_TYPE.getValue(type)
 
-    /** Get a category by ID (case-insensitive). */
-    fun getCategory(id: String): CategoryDefinition? = CATEGORIES_BY_ID[id.uppercase()]
+    /** Get a category by ID or alias (case-insensitive, e.g. "ABXY", "BUTTON", "TRIGGER", "TRIGGERS", "STICKS"). */
+    fun getCategory(id: String): CategoryDefinition? {
+        CATEGORIES_BY_ID[id.uppercase()]?.let { return it }
+        val resolvedType = CategoryType.fromIdentifier(id) ?: return null
+        return CATEGORIES_BY_TYPE[resolvedType]
+    }
 
     /** Find a control by key or alias (case-insensitive, e.g. "A", "LT", "L2", "DPAD", "START"). */
     fun getControl(key: String): ControlKey? = ControlKey.fromIdentifier(key)
@@ -51,11 +55,13 @@ object CategoryManager {
      */
     fun resolveControl(identifier: String?): ControlKey? = ControlKey.fromIdentifier(identifier)
 
-    /** Find the parent category for a given control key. */
-    fun findCategoryForControl(key: String): CategoryDefinition? =
-        getControl(key)?.let { CATEGORIES_BY_TYPE[it.categoryType] }
+    /** Find the parent category for a given control key, alias, or category identifier. */
+    fun findCategoryForControl(key: String): CategoryDefinition? {
+        getControl(key)?.let { return CATEGORIES_BY_TYPE[it.categoryType] }
+        return getCategory(key)
+    }
 
-    /** Returns all controls for a given category ID (e.g. "ABXY" -> A, B, X, Y). */
+    /** Returns all controls for a given category ID or alias (e.g. "ABXY" or "BUTTON" -> A, B, X, Y). */
     fun getControlsForCategory(categoryId: String): List<ControlKey> =
         getCategory(categoryId)?.controls ?: emptyList()
 
