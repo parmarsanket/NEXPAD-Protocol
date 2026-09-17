@@ -73,7 +73,7 @@ data class NxprcManifest(
     val name: String,
     val author: String = "Designer",
     val version: String = "1.0.0",
-    val category: String = "BUTTON",   // BUTTON, DPAD, JOYSTICK, TRIGGER, BUMPER, HOME, SYSTEM, MACRO
+    val category: String = "BUTTON",   // See NxprcCategory enum for valid values: BUTTON, DPAD, JOYSTICK, TRIGGER, BUMPER, HOME, SYSTEM, MACRO
     val defaultControl: String = "A",  // A, B, X, Y, LT, RT, LB, RB, LS, RS, UP, DOWN, etc.
     val widthDp: Int = 76,
     val heightDp: Int = 76,

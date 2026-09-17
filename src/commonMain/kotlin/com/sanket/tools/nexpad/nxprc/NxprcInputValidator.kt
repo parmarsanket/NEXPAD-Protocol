@@ -7,14 +7,16 @@ import com.sanket.tools.nexpad.category.CategoryManager
  * Enforces the NXPRC manifest spec:
  * - id must be non-blank and max [NxprcDefaults.MAX_ID_LENGTH] chars
  * - name must be non-blank and max [NxprcDefaults.MAX_NAME_LENGTH] chars
- * - category must be one of the known NXPRC category strings
+ * - category must be one of the known [NxprcCategory] values
  * - defaultControl must be a key known to [CategoryManager] (or blank to auto-detect)
  */
 internal object NxprcInputValidator {
 
-    private val VALID_CATEGORIES = setOf(
-        "BUTTON", "ABXY", "DPAD", "JOYSTICK", "STICK", "STICKS", "TRIGGER", "TRIGGERS", "BUMPER", "BUMPERS", "HOME", "SYSTEM", "MACRO", "MACROS"
-    )
+    /**
+     * Derived from [NxprcCategory] entries — single source of truth.
+     * No manual string list: adding a new NxprcCategory automatically makes it valid here.
+     */
+    private val VALID_CATEGORIES: Set<String> = NxprcCategory.entries.map { it.id }.toSet()
 
     fun validateHtml(html: String) {
         require(html.isNotBlank()) { "HTML/CSS input must not be blank" }

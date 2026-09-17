@@ -244,19 +244,19 @@ object CategoryManager {
         emoji = "🕹️",
         symbol = CategorySymbol.STICK,
         isGroupCluster = false,
-        description = "Dual 360-degree analog joysticks with concave thumb grip.",
+        description = "Dual 360-degree analog sticks with concave thumb grip.",
         controls = listOf(
             SubCategoryDefinition(
                 key = "LS",
                 label = "Left Stick",
-                defaultName = "Left Analog Thumbstick",
+                defaultName = "Left Analog Stick",
                 defaultId = "rc.stick_ls",
                 categoryType = CategoryType.STICKS,
                 componentType = ComponentType.JOYSTICK,
                 defaultWidthDp = 130,
                 defaultHeightDp = 130,
                 accentColorArgb = 0xFF34D399L, // Neon Emerald
-                description = "Left 360° analog thumbstick (movement).",
+                description = "Left 360° analog stick (movement).",
                 emoji = "🕹️",
                 symbol = CategorySymbol.STICK,
                 promptHint = "Stationary spherical/radial gimbal base with inner socket shadow + floating 360-degree deflection thumb cap with concave grip and knurled ring."
@@ -264,14 +264,14 @@ object CategoryManager {
             SubCategoryDefinition(
                 key = "RS",
                 label = "Right Stick",
-                defaultName = "Right Analog Thumbstick",
+                defaultName = "Right Analog Stick",
                 defaultId = "rc.stick_rs",
                 categoryType = CategoryType.STICKS,
                 componentType = ComponentType.JOYSTICK,
                 defaultWidthDp = 130,
                 defaultHeightDp = 130,
                 accentColorArgb = 0xFF34D399L,
-                description = "Right 360° analog thumbstick (camera/aim).",
+                description = "Right 360° analog stick (camera/aim).",
                 emoji = "🕹️",
                 symbol = CategorySymbol.STICK,
                 promptHint = "Stationary spherical/radial gimbal base with inner socket shadow + floating 360-degree deflection thumb cap with concave grip and knurled ring."
@@ -473,35 +473,145 @@ object CategoryManager {
                 put(ctrl.key.uppercase(), ctrl)
             }
         }
-        // Common aliases
-        val start = get("START")
+        // Common hardware & cross-platform aliases
+        val start = get("START") ?: get("MENU")
         if (start != null) {
+            put("START", start)
             put("MENU", start)
         }
-        val back = get("BACK")
+        val back = get("BACK") ?: get("VIEW")
         if (back != null) {
+            put("BACK", back)
             put("VIEW", back)
             put("SELECT", back)
         }
-        val guide = get("GUIDE")
+        val guide = get("GUIDE") ?: get("XBOX")
         if (guide != null) {
+            put("GUIDE", guide)
             put("XBOX", guide)
             put("HOME", guide)
         }
         val ls = get("LS")
         if (ls != null) {
             put("L3", ls)
+            put("THUMBSTICK_L", ls)
+            put("STICK_L", ls)
+            put("LEFT_STICK", ls)
         }
         val rs = get("RS")
         if (rs != null) {
             put("R3", rs)
+            put("THUMBSTICK_R", rs)
+            put("STICK_R", rs)
+            put("RIGHT_STICK", rs)
         }
+        val lb = get("LB")
+        if (lb != null) {
+            put("L1", lb)
+            put("LEFT_BUMPER", lb)
+            put("BUMPER_L", lb)
+            put("SHOULDER_LB", lb)
+        }
+        val rb = get("RB")
+        if (rb != null) {
+            put("R1", rb)
+            put("RIGHT_BUMPER", rb)
+            put("BUMPER_R", rb)
+            put("SHOULDER_RB", rb)
+        }
+        val lt = get("LT")
+        if (lt != null) {
+            put("L2", lt)
+            put("LEFT_TRIGGER", lt)
+            put("TRIGGER_L", lt)
+        }
+        val rt = get("RT")
+        if (rt != null) {
+            put("R2", rt)
+            put("RIGHT_TRIGGER", rt)
+            put("TRIGGER_R", rt)
+        }
+        val dpadComposite = SubCategoryDefinition(
+            key = "DPAD",
+            label = "4-Way D-Pad",
+            defaultName = "Directional Pad",
+            defaultId = "rc.dpad",
+            categoryType = CategoryType.DPAD,
+            componentType = ComponentType.DPAD,
+            defaultWidthDp = 140,
+            defaultHeightDp = 140,
+            accentColorArgb = 0xFF22D3EEL,
+            description = "Integrated 4-way directional cross pad.",
+            emoji = "🧭",
+            symbol = CategorySymbol.DPAD,
+            promptHint = "Integrated 4-way cross directional pad with center pivot and cardinal direction wings."
+        )
+        put("DPAD", dpadComposite)
+        put("CROSS", dpadComposite)
+        put("DIRECTIONAL_PAD", dpadComposite)
+        val share = get("SHARE")
+        if (share != null) {
+            put("CAPTURE", share)
+        }
+        val a = get("A")
+        if (a != null) put("BUTTON_A", a)
+        val b = get("B")
+        if (b != null) put("BUTTON_B", b)
+        val x = get("X")
+        if (x != null) put("BUTTON_X", x)
+        val y = get("Y")
+        if (y != null) put("BUTTON_Y", y)
+    }
+
+    /**
+     * Dynamically resolves any arbitrary input identifier to its canonical SubCategoryDefinition.
+     * Supports keys, aliases, default component IDs, builtin IDs, and human labels.
+     */
+    fun resolveControl(identifier: String?): SubCategoryDefinition? {
+        if (identifier.isNullOrBlank()) return null
+        val trimmed = identifier.trim().uppercase()
+
+        // 1. Direct key / alias lookup in CONTROLS_BY_KEY
+        CONTROLS_BY_KEY[trimmed]?.let { return it }
+
+        // 2. Lookup by defaultId (e.g. "rc.bumper_lb", "rc.action_a"), builtin ID, or label
+        ALL_CATEGORIES.forEach { cat ->
+            cat.controls.forEach { ctrl ->
+                if (ctrl.defaultId.equals(trimmed, ignoreCase = true)) return ctrl
+                if (ctrl.label.equals(trimmed, ignoreCase = true)) return ctrl
+                if (ctrl.defaultName.equals(trimmed, ignoreCase = true)) return ctrl
+                if ("builtin.default_${ctrl.key.lowercase()}".equals(trimmed, ignoreCase = true)) return ctrl
+            }
+        }
+
+        // 3. Fallback: stripped prefix lookup (e.g. "BUTTON_A" -> "A", "DIR_UP" -> "UP")
+        val stripped = trimmed
+            .removePrefix("BUTTON_").removePrefix("BTN_")
+            .removePrefix("DEFAULT_")
+            .removePrefix("RC.")
+            .removePrefix("BUILTIN.")
+        CONTROLS_BY_KEY[stripped]?.let { return it }
+
+        // 4. Suffix lookup for composite component IDs (e.g. "builtin.cyber_bumper_lb" -> "LB", "skin_neon_b" -> "B")
+        if (trimmed.contains('_') || trimmed.contains('.')) {
+            val suffix = trimmed.substringAfterLast('_').substringAfterLast('.')
+            CONTROLS_BY_KEY[suffix]?.let { return it }
+        }
+
+        return null
     }
 
     /**
      * Returns all registered top-level controller categories.
      */
     fun getAllCategories(): List<CategoryDefinition> = ALL_CATEGORIES
+
+    /**
+     * Returns every individual control sub-category across all categories.
+     * Convenience alternative to getAllCategories().flatMap { it.controls }.
+     */
+    fun getAllControls(): List<SubCategoryDefinition> =
+        ALL_CATEGORIES.flatMap { it.controls }
 
     /**
      * Get a category by its CategoryType.
