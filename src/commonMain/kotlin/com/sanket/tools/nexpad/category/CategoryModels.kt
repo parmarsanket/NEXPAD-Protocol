@@ -304,7 +304,16 @@ enum class ControlKey(
     /** Canonical string key — literally the enum constant's own name. Never re-typed anywhere. */
     val key: String get() = name
 
+    /** True if this control is the composite 4-Way D-Pad cross pad. */
+    val isDpadComposite: Boolean get() = this == DPAD
+
+    /** True if this control is one of the 4 discrete directional D-Pad buttons (UP, DOWN, LEFT, RIGHT). */
+    val isDpadDiscrete: Boolean get() = this in DISCRETE_DPAD_KEYS
+
     companion object {
+        /** All discrete directional D-Pad buttons (mutually exclusive with composite [DPAD]). */
+        val DISCRETE_DPAD_KEYS: Set<ControlKey> = setOf(UP, DOWN, LEFT, RIGHT)
+
         /** Every alias (including each constant's own canonical name) -> its [ControlKey]. Built once. */
         private val LOOKUP: Map<String, ControlKey> = buildMap {
             ControlKey.entries.forEach { ctrl ->
