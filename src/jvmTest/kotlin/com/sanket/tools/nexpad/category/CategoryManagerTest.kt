@@ -28,7 +28,7 @@ class CategoryManagerTest {
         val dpad = CategoryManager.getCategory("DPAD")
         assertNotNull(dpad)
         val keys = dpad.controls.map { it.key }
-        assertEquals(listOf("UP", "DOWN", "LEFT", "RIGHT"), keys)
+        assertEquals(listOf("UP", "DOWN", "LEFT", "RIGHT", "DPAD"), keys)
         assertTrue(dpad.keys.containsAll(listOf("DPAD", "CROSS", "UP", "DOWN", "LEFT", "RIGHT")))
     }
 
