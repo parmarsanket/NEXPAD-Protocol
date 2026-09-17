@@ -24,6 +24,15 @@ class CategoryManagerTest {
     }
 
     @Test
+    fun testSystemCategoryHasExactFourControls() {
+        val sys = CategoryManager.getCategory(CategoryType.SYSTEM)
+        assertEquals(4, sys.controls.size)
+        val keys = sys.controls.map { it.key }
+        assertEquals(listOf("GUIDE", "START", "BACK", "SHARE"), keys)
+        assertTrue(sys.keys.containsAll(listOf("GUIDE", "START", "BACK", "SHARE", "HOME", "XBOX", "PS", "MENU", "VIEW", "SELECT", "CAPTURE", "SCREENSHOT")))
+    }
+
+    @Test
     fun testDpadCardinalDirections() {
         val dpad = CategoryManager.getCategory("DPAD")
         assertNotNull(dpad)

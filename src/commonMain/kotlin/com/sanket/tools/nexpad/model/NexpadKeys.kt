@@ -52,8 +52,6 @@ object NexpadKeys {
     /** View / Back / Select / Map button. */
     val BACK: String = ControlKey.BACK.key
     val SHARE: String = ControlKey.SHARE.key
-    val TURBO: String = ControlKey.TURBO.key
-    val PROFILE: String = ControlKey.PROFILE.key
 
     // ── Macros ───────────────────────────────────────────────────────────
     val M1: String = ControlKey.M1.key
@@ -64,7 +62,9 @@ object NexpadKeys {
     // ── Hardware Synonyms & Aliases (All bound to single source of truth) ──
     val XBOX: String = ControlKey.GUIDE.key
     val HOME: String = ControlKey.GUIDE.key
+    val PS: String = ControlKey.GUIDE.key
     val MENU: String = ControlKey.START.key
+    val OPTIONS: String = ControlKey.START.key
     val VIEW: String = ControlKey.BACK.key
     val SELECT: String = ControlKey.BACK.key
     val L1: String = ControlKey.LB.key
@@ -74,4 +74,5 @@ object NexpadKeys {
     val L3: String = ControlKey.LS.key
     val R3: String = ControlKey.RS.key
     val SCREENSHOT: String = ControlKey.SHARE.key
+    val CAPTURE: String = ControlKey.SHARE.key
 }

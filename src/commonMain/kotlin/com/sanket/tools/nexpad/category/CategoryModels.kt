@@ -88,7 +88,7 @@ enum class CategoryType(
     SYSTEM(
         "System", "⚙️", CategorySymbol.SYSTEM,
         "System, navigation, utility, and special function buttons.",
-        aliasKeys = setOf("SYSTEM", "VIEW", "MENU", "SELECT", "HOME", "XBOX", "GUIDE", "START", "BACK", "OPTIONS")
+        aliasKeys = setOf("SYSTEM", "VIEW", "MENU", "SELECT", "HOME", "XBOX", "GUIDE", "START", "BACK", "OPTIONS", "SHARE", "CAPTURE", "SCREENSHOT", "PS")
     ),
     MACROS(
         "Macros", "⚡", CategorySymbol.MACRO,
@@ -254,39 +254,29 @@ enum class ControlKey(
     ),
 
     // ── System ───────────────────────────────────────────────────────────
+    GUIDE(
+        CategoryType.SYSTEM, ComponentType.SYSTEM, "Nexus Guide", "Controller Center Guide", "rc.sys_guide",
+        84, 84, 0xFFF59E0BL, "Home / Xbox / PlayStation central guide button.", "⨂", CategorySymbol.HOME,
+        promptHint = "Large luminous orb or badge, glowing center insignia, prestigious bevel.",
+        aliases = setOf("XBOX", "HOME", "PS", "NEXUS")
+    ),
     START(
         CategoryType.SYSTEM, ComponentType.SYSTEM, "Menu / Start", "System Menu Button", "rc.sys_start",
         70, 70, 0xFF94A3B8L, "Pause / Options / Start button.", "☰", CategorySymbol.SYSTEM,
         promptHint = "Compact pill or small disc with hamburger lines or forward glyph.",
-        aliases = setOf("MENU")
+        aliases = setOf("MENU", "OPTIONS", "PAUSE")
     ),
     BACK(
         CategoryType.SYSTEM, ComponentType.SYSTEM, "View / Back", "System View Button", "rc.sys_back",
         70, 70, 0xFF94A3B8L, "Map / Back / Select button.", "⧉", CategorySymbol.SYSTEM,
         promptHint = "Compact pill or small disc with overlapping squares or rewind glyph.",
-        aliases = setOf("VIEW", "SELECT")
-    ),
-    GUIDE(
-        CategoryType.SYSTEM, ComponentType.SYSTEM, "Nexus Guide", "Controller Center Guide", "rc.sys_guide",
-        84, 84, 0xFFF59E0BL, "Home / Xbox / PlayStation central guide button.", "⨂", CategorySymbol.HOME,
-        promptHint = "Large luminous orb or badge, glowing center insignia, prestigious bevel.",
-        aliases = setOf("XBOX", "HOME")
+        aliases = setOf("VIEW", "SELECT", "MAP")
     ),
     SHARE(
         CategoryType.SYSTEM, ComponentType.SYSTEM, "Share / Capture", "System Share Button", "rc.sys_share",
-        70, 70, 0xFF94A3B8L, "Capture screenshot or video clip.", "📤", CategorySymbol.SYSTEM,
+        70, 70, 0xFF94A3B8L, "Capture screenshot or video clip.", "⇪", CategorySymbol.SYSTEM,
         promptHint = "Minimalist utility button with broadcast or share glyph.",
         aliases = setOf("CAPTURE", "SCREENSHOT")
-    ),
-    TURBO(
-        CategoryType.SYSTEM, ComponentType.SYSTEM, "Turbo", "Rapid Turbo Trigger", "rc.sys_turbo",
-        70, 70, 0xFFEC4899L, "Hardware rapid-fire turbo switch.", "⚡", CategorySymbol.SYSTEM,
-        promptHint = "Lightning insignia with energetic magenta backlighting."
-    ),
-    PROFILE(
-        CategoryType.SYSTEM, ComponentType.SYSTEM, "Profile", "Profile Switch Button", "rc.sys_profile",
-        70, 70, 0xFF8B5CF6L, "Toggle between custom layout profiles.", "👤", CategorySymbol.SYSTEM,
-        promptHint = "Switch/cycle icon with multi-state indicator LEDs."
     ),
 
     // ── Macros ───────────────────────────────────────────────────────────
