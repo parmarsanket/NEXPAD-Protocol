@@ -1,22 +1,30 @@
 package com.sanket.tools.nexpad.nxprc
 
 import com.sanket.tools.nexpad.category.CategoryManager
+import com.sanket.tools.nexpad.category.CategoryType
 
 /**
  * Validates public compiler inputs before parsing untrusted HTML/CSS.
  * Enforces the NXPRC manifest spec:
  * - id must be non-blank and max [NxprcDefaults.MAX_ID_LENGTH] chars
  * - name must be non-blank and max [NxprcDefaults.MAX_NAME_LENGTH] chars
- * - category must be one of the known [NxprcCategory] values
+ * - category must be one of the known [NxprcCategory] or [CategoryType] values
  * - defaultControl must be a key known to [CategoryManager] (or blank to auto-detect)
  */
 internal object NxprcInputValidator {
 
     /**
-     * Derived from [NxprcCategory] entries — single source of truth.
-     * No manual string list: adding a new NxprcCategory automatically makes it valid here.
+     * Derived from [NxprcCategory] and [CategoryType] entries — single source of truth.
+     * No manual string list: adding a new category automatically makes it valid here.
      */
-    private val VALID_CATEGORIES: Set<String> = NxprcCategory.entries.map { it.id }.toSet()
+    private val VALID_CATEGORIES: Set<String> = buildSet {
+        NxprcCategory.entries.forEach { add(it.id.uppercase()) }
+        CategoryType.entries.forEach { cat ->
+            add(cat.name.uppercase())
+            add(cat.displayTitle.uppercase())
+            cat.aliasKeys.forEach { add(it.uppercase()) }
+        }
+    }
 
     fun validateHtml(html: String) {
         require(html.isNotBlank()) { "HTML/CSS input must not be blank" }
