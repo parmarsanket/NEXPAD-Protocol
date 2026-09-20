@@ -16,7 +16,7 @@ import com.sanket.tools.nexpad.nxprc.engine.parsers.*
 internal object DomTreeCompiler {
 
     fun isNodeThumbCap(node: DomNode, category: String): Boolean {
-        if (!category.equals("JOYSTICK", ignoreCase = true)) return false
+        if (!category.equals("JOYSTICK", ignoreCase = true) && !category.equals("TOUCHPAD", ignoreCase = true)) return false
 
         // 1. Ancestor hierarchy takes highest precedence: containers define physical zones
         var ancestor = node.parent
@@ -179,7 +179,7 @@ internal object DomTreeCompiler {
                     transform = pTransform
                 )
                 val isPseudoCap = isNodeThumbCap(node, category) ||
-                        (category.equals("JOYSTICK", ignoreCase = true) &&
+                        ((category.equals("JOYSTICK", ignoreCase = true) || category.equals("TOUCHPAD", ignoreCase = true)) &&
                          node.tag.equals("button", ignoreCase = true) &&
                          (pWidth / buttonWidth) <= 0.68f && (pHeight / buttonHeight) <= 0.68f)
                 layerCollector.addLayer(pStack, box, isThumbCap = isPseudoCap)

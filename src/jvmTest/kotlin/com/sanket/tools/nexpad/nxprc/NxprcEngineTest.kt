@@ -1684,5 +1684,44 @@ LINE TWO</button>
         assertEquals(cleanResult.document.manifest.id, directDoc.manifest.id)
         assertEquals(cleanResult.document.canvas.layers.size, directDoc.canvas.layers.size)
     }
+
+    @Test
+    fun testTouchpadComponentCompilationAndValidation() {
+        val touchpadHtml = """
+            <style>
+              .touchpad-ctl {
+                width: 180px;
+                height: 180px;
+                border-radius: 28px;
+                background: radial-gradient(circle at 50% 50%, #1a1e28 0%, #0d0f14 100%);
+                border: 2px solid rgba(52, 211, 153, 0.4);
+              }
+            </style>
+            <div class="touchpad-ctl" data-control="LTP" data-category="TOUCHPAD" data-name="Left Movement Touchpad">
+            </div>
+        """.trimIndent()
+
+        val result = NxprcPackager.compileWithWarnings(
+            html = touchpadHtml,
+            id = "rc.touch_ltp",
+            name = "Left Movement Touchpad",
+            category = "TOUCHPAD",
+            defaultControl = "LTP"
+        )
+
+        val doc = result.document
+        assertEquals("TOUCHPAD", doc.manifest.category)
+        assertEquals("LTP", doc.manifest.defaultControl)
+        assertEquals(180, doc.manifest.widthDp)
+        assertEquals(180, doc.manifest.heightDp)
+        assertEquals(800f, doc.animations.joystickSpringTension)
+        assertTrue(doc.canvas.layers.isNotEmpty(), "Touchpad must produce canvas draw layers")
+
+        // Binary round-trip verification
+        val bytes = NxprcDocument.encodeToBytes(doc)
+        val decoded = NxprcDocument.decodeFromBytes(bytes).getOrThrow()
+        assertEquals("TOUCHPAD", decoded.manifest.category)
+        assertEquals("LTP", decoded.manifest.defaultControl)
+    }
 }
 

@@ -2,6 +2,7 @@ package com.sanket.tools.nexpad.nxprc
 
 import com.sanket.tools.nexpad.category.CategoryManager
 import com.sanket.tools.nexpad.category.CategoryType
+import com.sanket.tools.nexpad.category.ComponentType
 import com.sanket.tools.nexpad.category.ControlKey
 
 /**
@@ -15,7 +16,7 @@ import com.sanket.tools.nexpad.category.ControlKey
 internal object NxprcInputValidator {
 
     /**
-     * Derived from [NxprcCategory] and [CategoryType] entries — single source of truth.
+     * Derived from [NxprcCategory], [CategoryType], and [ComponentType] entries — single source of truth.
      * No manual string list: adding a new category automatically makes it valid here.
      */
     private val VALID_CATEGORIES: Set<String> = buildSet {
@@ -25,6 +26,11 @@ internal object NxprcInputValidator {
             add(cat.displayTitle.uppercase())
             cat.aliasKeys.forEach { add(it.uppercase()) }
         }
+        ComponentType.entries.forEach { add(it.name.uppercase()) }
+        add("TOUCHPAD")
+        add("TOUCHPADS")
+        add("TRACKPAD")
+        add("TRACKPADS")
     }
 
     fun validateHtml(html: String) {

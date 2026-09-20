@@ -24,7 +24,8 @@ enum class ComponentType {
     TRIGGER,
     BUMPER,
     JOYSTICK,
-    SYSTEM
+    SYSTEM,
+    TOUCHPAD
 }
 
 /**
@@ -83,7 +84,7 @@ enum class CategoryType(
     STICKS(
         "Sticks", "🕹️", CategorySymbol.STICK,
         "Dual 360-degree analog sticks with concave thumb grip.",
-        aliasKeys = setOf("STICK", "STICKS", "JOYSTICK", "JOYSTICKS", "THUMBSTICK", "THUMBSTICKS")
+        aliasKeys = setOf("STICK", "STICKS", "JOYSTICK", "JOYSTICKS", "THUMBSTICK", "THUMBSTICKS", "TOUCHPAD", "TOUCHPADS", "TRACKPAD", "TRACKPADS")
     ),
     SYSTEM(
         "System", "⚙️", CategorySymbol.SYSTEM,
@@ -244,13 +245,37 @@ enum class ControlKey(
         CategoryType.STICKS, ComponentType.JOYSTICK, "Left Stick", "Left Analog Stick", "rc.stick_ls",
         130, 130, 0xFF34D399L, "Left 360° analog stick (movement).", "🕹️", CategorySymbol.STICK,
         promptHint = "Stationary spherical/radial gimbal base with inner socket shadow + floating 360-degree deflection thumb cap with concave grip and knurled ring.",
-        aliases = setOf("L3", "THUMBSTICK_L", "STICK_L", "LEFT_STICK")
+        aliases = setOf("THUMBSTICK_L", "STICK_L", "LEFT_STICK")
     ),
     RS(
         CategoryType.STICKS, ComponentType.JOYSTICK, "Right Stick", "Right Analog Stick", "rc.stick_rs",
         130, 130, 0xFF34D399L, "Right 360° analog stick (camera/aim).", "🕹️", CategorySymbol.STICK,
         promptHint = "Stationary spherical/radial gimbal base with inner socket shadow + floating 360-degree deflection thumb cap with concave grip and knurled ring.",
-        aliases = setOf("R3", "THUMBSTICK_R", "STICK_R", "RIGHT_STICK")
+        aliases = setOf("THUMBSTICK_R", "STICK_R", "RIGHT_STICK")
+    ),
+    LSB(
+        CategoryType.STICKS, ComponentType.BUTTON, "Left Stick Button", "Left Stick Click", "rc.stick_lsb",
+        72, 72, 0xFF34D399L, "Left thumbstick click button (L3 / LSB) for sprint or special actions.", "🕹️", CategorySymbol.STICK,
+        promptHint = "Tactile circular thumbstick click button with recessed center dish, knurled perimeter rim, and bold LSB or L3 glyph.",
+        aliases = setOf("L3", "STICK_LSB", "LS_BUTTON", "LS_CLICK", "BUTTON_L3", "BUTTON_LSB")
+    ),
+    RSB(
+        CategoryType.STICKS, ComponentType.BUTTON, "Right Stick Button", "Right Stick Click", "rc.stick_rsb",
+        72, 72, 0xFF34D399L, "Right thumbstick click button (R3 / RSB) for melee, crouch, or zoom actions.", "🕹️", CategorySymbol.STICK,
+        promptHint = "Tactile circular thumbstick click button with recessed center dish, knurled perimeter rim, and bold RSB or R3 glyph.",
+        aliases = setOf("R3", "STICK_RSB", "RS_BUTTON", "RS_CLICK", "BUTTON_R3", "BUTTON_RSB")
+    ),
+    LTP(
+        CategoryType.STICKS, ComponentType.TOUCHPAD, "Left Touchpad", "Left Touch Movement Pad", "rc.touch_ltp",
+        180, 180, 0xFF34D399L, "Left touch movement surface (dynamic-center virtual stick / trackpad).", "🕹️", CategorySymbol.STICK,
+        promptHint = "Expansive rounded-rectangle or circular touch movement surface with subtle etched micro-texture, tactile center anchor, and directional swipe cues.",
+        aliases = setOf("TOUCHPAD_L", "LEFT_TOUCHPAD", "TOUCH_L", "MOVE_PAD", "L_TRACKPAD", "TOUCH_STICK_L")
+    ),
+    RTP(
+        CategoryType.STICKS, ComponentType.TOUCHPAD, "Right Touchpad", "Right Touch Camera Look Pad", "rc.touch_rtp",
+        180, 180, 0xFF34D399L, "Right touch swipe-to-look camera surface (free-look camera trackpad).", "🕹️", CategorySymbol.STICK,
+        promptHint = "Expansive rounded-rectangle or circular swipe-to-look camera trackpad with subtle etched micro-texture, tactile center anchor, and free-look reticle cues.",
+        aliases = setOf("TOUCHPAD_R", "RIGHT_TOUCHPAD", "TOUCH_R", "CAMERA_PAD", "LOOK_PAD", "SWIPE_LOOK", "R_TRACKPAD", "TOUCH_STICK_R")
     ),
 
     // ── System ───────────────────────────────────────────────────────────

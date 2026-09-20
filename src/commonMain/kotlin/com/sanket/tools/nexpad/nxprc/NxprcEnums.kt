@@ -1,6 +1,8 @@
 package com.sanket.tools.nexpad.nxprc
 
 import com.sanket.tools.nexpad.category.CategoryType
+import com.sanket.tools.nexpad.category.ComponentType
+import com.sanket.tools.nexpad.category.ControlKey
 
 /**
  * Strongly-typed enumeration of supported canvas layer shape types.
@@ -67,6 +69,7 @@ enum class NxprcCategory(val id: String) {
     BUTTON("BUTTON"),
     DPAD("DPAD"),
     JOYSTICK("JOYSTICK"),
+    TOUCHPAD("TOUCHPAD"),
     TRIGGER("TRIGGER"),
     BUMPER("BUMPER"),
     HOME("HOME"),
@@ -77,7 +80,7 @@ enum class NxprcCategory(val id: String) {
     val categoryType: CategoryType get() = when (this) {
         BUTTON -> CategoryType.ABXY
         DPAD -> CategoryType.DPAD
-        JOYSTICK -> CategoryType.STICKS
+        JOYSTICK, TOUCHPAD -> CategoryType.STICKS
         TRIGGER -> CategoryType.TRIGGERS
         BUMPER -> CategoryType.BUMPERS
         HOME, SYSTEM -> CategoryType.SYSTEM
@@ -92,6 +95,11 @@ enum class NxprcCategory(val id: String) {
         fun fromId(id: String): NxprcCategory {
             val upper = id.uppercase()
             entries.firstOrNull { it.id == upper }?.let { return it }
+            if (upper == "TOUCHPAD" || upper == "TOUCHPADS" || upper == "TRACKPAD" || upper == "TRACKPADS") return TOUCHPAD
+
+            ControlKey.fromIdentifier(id)?.let { ctrl ->
+                if (ctrl.componentType == ComponentType.BUTTON) return BUTTON
+            }
 
             return CategoryType.fromIdentifier(id)?.let { cat ->
                 when (cat) {

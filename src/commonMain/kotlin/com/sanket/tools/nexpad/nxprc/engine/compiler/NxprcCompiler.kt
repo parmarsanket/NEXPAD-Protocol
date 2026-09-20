@@ -52,7 +52,9 @@ object NxprcCompiler {
 
         val autoCategory = primaryNode.attributes["data-category"]
             ?: parsed.root.attributes["data-category"]
-            ?: if (primaryNode.classNames.any { it.contains("stick") || it.contains("joy") || it.contains("thumb") }) "JOYSTICK" else category
+            ?: if (primaryNode.classNames.any { it.contains("stick") || it.contains("joy") || it.contains("thumb") }) "JOYSTICK"
+            else if (primaryNode.classNames.any { it.contains("touchpad") || it.contains("trackpad") }) "TOUCHPAD"
+            else category
 
         val autoName = primaryNode.attributes["data-name"]
             ?: parsed.root.attributes["data-name"]
@@ -550,7 +552,7 @@ object NxprcCompiler {
                                     lineHeightSp = lineResult.lineHeight,
                                     textAlign = textStyle["text-align"]?.uppercase() ?: "CENTER"
                                 ),
-                                isThumbCap = autoCategory.equals("JOYSTICK", ignoreCase = true)
+                                isThumbCap = autoCategory.equals("JOYSTICK", ignoreCase = true) || autoCategory.equals("TOUCHPAD", ignoreCase = true)
                             )
                         }
                     }
@@ -568,7 +570,7 @@ object NxprcCompiler {
                             offsetXRatio = offXRatio,
                             offsetYRatio = offYRatio
                         ),
-                        isThumbCap = autoCategory.equals("JOYSTICK", ignoreCase = true)
+                        isThumbCap = autoCategory.equals("JOYSTICK", ignoreCase = true) || autoCategory.equals("TOUCHPAD", ignoreCase = true)
                     )
                 }
                 centerGlyphAdded = true
@@ -580,6 +582,7 @@ object NxprcCompiler {
             val explicitText = primaryNode.findFirstText()
             val hasChildElements = primaryNode.children.any { it.tag != "#text" && it.tag != "style" }
             val suppressFallbackText = autoCategory.equals(NxprcCategory.JOYSTICK.id, ignoreCase = true) ||
+                autoCategory.equals(NxprcCategory.TOUCHPAD.id, ignoreCase = true) ||
                 ((autoCategory.equals(NxprcCategory.SYSTEM.id, ignoreCase = true) || autoCategory.equals(NxprcCategory.DPAD.id, ignoreCase = true)) && hasChildElements)
 
             val centerText = if (suppressFallbackText) {
@@ -626,7 +629,7 @@ object NxprcCompiler {
                                 lineHeightSp = lineResult.lineHeight,
                                 textAlign = baseProps["text-align"]?.uppercase() ?: "CENTER"
                             ),
-                            isThumbCap = autoCategory.equals("JOYSTICK", ignoreCase = true)
+                            isThumbCap = autoCategory.equals("JOYSTICK", ignoreCase = true) || autoCategory.equals("TOUCHPAD", ignoreCase = true)
                         )
                     }
                 }
@@ -642,7 +645,7 @@ object NxprcCompiler {
                         highlightColor = lightTextHighlight?.color ?: NxprcDefaults.DEFAULT_HIGHLIGHT_COLOR,
                         textShadows = textShadows
                     ),
-                    isThumbCap = autoCategory.equals("JOYSTICK", ignoreCase = true)
+                    isThumbCap = autoCategory.equals("JOYSTICK", ignoreCase = true) || autoCategory.equals("TOUCHPAD", ignoreCase = true)
                 )
             }
             }
@@ -720,7 +723,7 @@ object NxprcCompiler {
 
         val totalCanvasOutsets = EffectsResolver.computeTotalCanvasOutsets(layerCollector.getAllEntries())
         val (allSortedLayers, initialCapIndices) = layerCollector.getSortedLayersAndCapIndices()
-        val capIndices = if (autoCategory.equals("JOYSTICK", ignoreCase = true)) {
+        val capIndices = if (autoCategory.equals("JOYSTICK", ignoreCase = true) || autoCategory.equals("TOUCHPAD", ignoreCase = true)) {
             val hasCapShapes = initialCapIndices.any {
                 val layer = allSortedLayers.getOrNull(it)
                 layer is CanvasLayer.BoxLayer || layer is CanvasLayer.GradientShape
@@ -791,7 +794,7 @@ object NxprcCompiler {
                 springDamping = dampingRatio,
                 enableGameRumble = true,
                 rumbleIntensity = 1.0f,
-                joystickSpringTension = if (autoCategory.equals("JOYSTICK", ignoreCase = true)) 800f else 750f,
+                joystickSpringTension = if (autoCategory.equals("JOYSTICK", ignoreCase = true) || autoCategory.equals("TOUCHPAD", ignoreCase = true)) 800f else 750f,
                 triggerMaxPullDepth = if (autoCategory.equals("TRIGGER", ignoreCase = true)) 16f else 12f,
                 tracks = allTracks
             )

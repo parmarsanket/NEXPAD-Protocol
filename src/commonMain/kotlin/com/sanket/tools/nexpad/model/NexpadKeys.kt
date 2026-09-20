@@ -43,6 +43,10 @@ object NexpadKeys {
     // ── Sticks ───────────────────────────────────────────────────────────
     val LS: String = ControlKey.LS.key
     val RS: String = ControlKey.RS.key
+    val LSB: String = ControlKey.LSB.key
+    val RSB: String = ControlKey.RSB.key
+    val LTP: String = ControlKey.LTP.key
+    val RTP: String = ControlKey.RTP.key
 
     // ── System ───────────────────────────────────────────────────────────
     /** Xbox / Home / Guide center button. */
@@ -71,8 +75,8 @@ object NexpadKeys {
     val R1: String = ControlKey.RB.key
     val L2: String = ControlKey.LT.key
     val R2: String = ControlKey.RT.key
-    val L3: String = ControlKey.LS.key
-    val R3: String = ControlKey.RS.key
+    val L3: String = ControlKey.LSB.key
+    val R3: String = ControlKey.RSB.key
     val SCREENSHOT: String = ControlKey.SHARE.key
     val CAPTURE: String = ControlKey.SHARE.key
 }

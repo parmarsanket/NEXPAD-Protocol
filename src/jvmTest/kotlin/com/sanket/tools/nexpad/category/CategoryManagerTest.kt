@@ -205,7 +205,40 @@ class CategoryManagerTest {
         assertEquals(listOf("LT", "RT"), triggerControls.map { it.key })
 
         val stickControls = CategoryManager.getControlsForCategory("JOYSTICK")
-        assertEquals(listOf("LS", "RS"), stickControls.map { it.key })
+        assertEquals(listOf("LS", "RS", "LSB", "RSB", "LTP", "RTP"), stickControls.map { it.key })
+    }
+
+    @Test
+    fun testStickButtonControlResolution() {
+        val lsb = CategoryManager.getControl("LSB")
+        assertNotNull(lsb)
+        assertEquals(ComponentType.BUTTON, lsb.componentType)
+        assertEquals(CategoryType.STICKS, lsb.categoryType)
+        assertEquals(lsb, CategoryManager.getControl("L3"))
+
+        val rsb = CategoryManager.getControl("RSB")
+        assertNotNull(rsb)
+        assertEquals(ComponentType.BUTTON, rsb.componentType)
+        assertEquals(CategoryType.STICKS, rsb.categoryType)
+        assertEquals(rsb, CategoryManager.getControl("R3"))
+    }
+
+    @Test
+    fun testTouchpadControlResolution() {
+        val ltp = CategoryManager.getControl("LTP")
+        assertNotNull(ltp)
+        assertEquals(ComponentType.TOUCHPAD, ltp.componentType)
+        assertEquals(CategoryType.STICKS, ltp.categoryType)
+        assertEquals(ltp, CategoryManager.getControl("TOUCHPAD_L"))
+        assertEquals(ltp, CategoryManager.getControl("MOVE_PAD"))
+
+        val rtp = CategoryManager.getControl("RTP")
+        assertNotNull(rtp)
+        assertEquals(ComponentType.TOUCHPAD, rtp.componentType)
+        assertEquals(CategoryType.STICKS, rtp.categoryType)
+        assertEquals(rtp, CategoryManager.getControl("TOUCHPAD_R"))
+        assertEquals(rtp, CategoryManager.getControl("CAMERA_PAD"))
+        assertEquals(rtp, CategoryManager.getControl("SWIPE_LOOK"))
     }
 
     @Test
@@ -219,7 +252,7 @@ class CategoryManagerTest {
         assertTrue(bumpers.keys.containsAll(listOf("LB", "RB", "L1", "R1", "BUMPER", "BUMPERS", "SHOULDER")))
 
         val sticks = CategoryManager.getCategory(CategoryType.STICKS)
-        assertTrue(sticks.keys.containsAll(listOf("LS", "RS", "L3", "R3", "JOYSTICK", "STICK", "STICKS")))
+        assertTrue(sticks.keys.containsAll(listOf("LS", "RS", "LSB", "RSB", "LTP", "RTP", "L3", "R3", "JOYSTICK", "STICK", "STICKS", "TOUCHPAD", "TOUCHPADS", "TRACKPAD", "TRACKPADS")))
     }
 
     @Test
@@ -229,12 +262,24 @@ class CategoryManagerTest {
         assertEquals(CategoryType.TRIGGERS, com.sanket.tools.nexpad.nxprc.NxprcCategory.TRIGGER.categoryType)
         assertEquals(CategoryType.BUMPERS, com.sanket.tools.nexpad.nxprc.NxprcCategory.BUMPER.categoryType)
         assertEquals(CategoryType.STICKS, com.sanket.tools.nexpad.nxprc.NxprcCategory.JOYSTICK.categoryType)
+        assertEquals(CategoryType.STICKS, com.sanket.tools.nexpad.nxprc.NxprcCategory.TOUCHPAD.categoryType)
         assertEquals(CategoryType.SYSTEM, com.sanket.tools.nexpad.nxprc.NxprcCategory.SYSTEM.categoryType)
         assertEquals(CategoryType.MACROS, com.sanket.tools.nexpad.nxprc.NxprcCategory.MACRO.categoryType)
 
         assertEquals(com.sanket.tools.nexpad.nxprc.NxprcCategory.TRIGGER, com.sanket.tools.nexpad.nxprc.NxprcCategory.fromId("TRIGGERS"))
         assertEquals(com.sanket.tools.nexpad.nxprc.NxprcCategory.JOYSTICK, com.sanket.tools.nexpad.nxprc.NxprcCategory.fromId("STICKS"))
+        assertEquals(com.sanket.tools.nexpad.nxprc.NxprcCategory.TOUCHPAD, com.sanket.tools.nexpad.nxprc.NxprcCategory.fromId("TOUCHPAD"))
+        assertEquals(com.sanket.tools.nexpad.nxprc.NxprcCategory.TOUCHPAD, com.sanket.tools.nexpad.nxprc.NxprcCategory.fromId("TOUCHPADS"))
+        assertEquals(com.sanket.tools.nexpad.nxprc.NxprcCategory.TOUCHPAD, com.sanket.tools.nexpad.nxprc.NxprcCategory.fromId("TRACKPAD"))
+        assertEquals(com.sanket.tools.nexpad.nxprc.NxprcCategory.TOUCHPAD, com.sanket.tools.nexpad.nxprc.NxprcCategory.fromId("TRACKPADS"))
         assertEquals(com.sanket.tools.nexpad.nxprc.NxprcCategory.BUMPER, com.sanket.tools.nexpad.nxprc.NxprcCategory.fromId("BUMPERS"))
         assertEquals(com.sanket.tools.nexpad.nxprc.NxprcCategory.TRIGGER, com.sanket.tools.nexpad.nxprc.NxprcCategory.fromId("LT"))
+        assertEquals(com.sanket.tools.nexpad.nxprc.NxprcCategory.BUTTON, com.sanket.tools.nexpad.nxprc.NxprcCategory.fromId("LSB"))
+        assertEquals(com.sanket.tools.nexpad.nxprc.NxprcCategory.BUTTON, com.sanket.tools.nexpad.nxprc.NxprcCategory.fromId("RSB"))
+        assertEquals(com.sanket.tools.nexpad.nxprc.NxprcCategory.BUTTON, com.sanket.tools.nexpad.nxprc.NxprcCategory.fromId("L3"))
+        assertEquals(com.sanket.tools.nexpad.nxprc.NxprcCategory.BUTTON, com.sanket.tools.nexpad.nxprc.NxprcCategory.fromId("R3"))
+        assertEquals(CategoryType.STICKS, CategoryType.fromIdentifier("TOUCHPAD"))
+        assertEquals(CategoryType.STICKS, CategoryType.fromIdentifier("TOUCHPADS"))
+        assertEquals(CategoryType.STICKS, CategoryType.fromIdentifier("TRACKPAD"))
     }
 }
