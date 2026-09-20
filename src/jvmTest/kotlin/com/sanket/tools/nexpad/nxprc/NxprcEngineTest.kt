@@ -1723,5 +1723,44 @@ LINE TWO</button>
         assertEquals("TOUCHPAD", decoded.manifest.category)
         assertEquals("LTP", decoded.manifest.defaultControl)
     }
+
+    @Test
+    fun testTouchpadDistinctIdAndWiringForLtpAndRtp() {
+        val ltpBareHtml = """
+            <style>
+              .touchpad-ctl { width: 180px; height: 180px; }
+            </style>
+            <div class="touchpad-ctl" data-control="LTP">
+            </div>
+        """.trimIndent()
+
+        val rtpBareHtml = """
+            <style>
+              .touchpad-ctl { width: 180px; height: 180px; }
+            </style>
+            <div class="touchpad-ctl" data-control="RTP">
+            </div>
+        """.trimIndent()
+
+        val docLtp = NxprcPackager.compile(ltpBareHtml, id = "rc.custom", name = "Custom Button", defaultControl = "LTP")
+        val docRtp = NxprcPackager.compile(rtpBareHtml, id = "rc.custom", name = "Custom Button", defaultControl = "RTP")
+
+        // Crucial test: Ensure LTP and RTP never collide on "rc.touchpad_ctl"
+        assertEquals("rc.touchpad_ctl_ltp", docLtp.manifest.id)
+        assertEquals("rc.touchpad_ctl_rtp", docRtp.manifest.id)
+        assertTrue(docLtp.manifest.id != docRtp.manifest.id, "LTP and RTP must have distinct manifest IDs")
+
+        // With explicit data-id
+        val ltpExplicit = """
+            <div class="touchpad-ctl" data-id="touch_ltp" data-control="LTP"></div>
+        """.trimIndent()
+        val rtpExplicit = """
+            <div class="touchpad-ctl" data-id="touch_rtp" data-control="RTP"></div>
+        """.trimIndent()
+        val docLtpExp = NxprcPackager.compile(ltpExplicit, id = "rc.custom", defaultControl = "LTP")
+        val docRtpExp = NxprcPackager.compile(rtpExplicit, id = "rc.custom", defaultControl = "RTP")
+        assertEquals("rc.touch_ltp", docLtpExp.manifest.id)
+        assertEquals("rc.touch_rtp", docRtpExp.manifest.id)
+    }
 }
 

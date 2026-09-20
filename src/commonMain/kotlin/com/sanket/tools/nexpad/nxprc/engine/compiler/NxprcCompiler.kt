@@ -704,14 +704,22 @@ object NxprcCompiler {
         }
 
         val primaryClass = primaryNode.classNames.firstOrNull()?.replace("-", "_")
+        val isTouchControl = autoControl.equals("LTP", ignoreCase = true) || autoControl.equals("RTP", ignoreCase = true)
         val resolvedId = when {
             autoId.isNotBlank() && autoId != "rc.custom" -> if (autoId.startsWith("rc.")) autoId else "rc.$autoId"
+            primaryClass != null && isTouchControl && !primaryClass.contains(autoControl, ignoreCase = true) -> "rc.${primaryClass}_${autoControl.lowercase()}"
             primaryClass != null -> "rc.$primaryClass"
             else -> "rc.custom_$autoControl"
         }
 
         val resolvedName = when {
             autoName.isNotBlank() && autoName != "Custom Button" -> autoName
+            primaryClass != null && isTouchControl && !primaryClass.contains(autoControl, ignoreCase = true) -> {
+                val base = primaryClass.split("_", "-").joinToString(" ") { word ->
+                    word.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+                }
+                "$base $autoControl"
+            }
             primaryClass != null -> primaryClass.split("_", "-").joinToString(" ") { word ->
                 word.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
             }
@@ -723,7 +731,10 @@ object NxprcCompiler {
 
         val totalCanvasOutsets = EffectsResolver.computeTotalCanvasOutsets(layerCollector.getAllEntries())
         val (allSortedLayers, initialCapIndices) = layerCollector.getSortedLayersAndCapIndices()
-        val capIndices = if (autoCategory.equals("JOYSTICK", ignoreCase = true) || autoCategory.equals("TOUCHPAD", ignoreCase = true)) {
+        val isTouchpad = autoCategory.equals("TOUCHPAD", ignoreCase = true) ||
+                autoControl.equals("LTP", ignoreCase = true) ||
+                autoControl.equals("RTP", ignoreCase = true)
+        val capIndices = if (!isTouchpad && autoCategory.equals("JOYSTICK", ignoreCase = true)) {
             val hasCapShapes = initialCapIndices.any {
                 val layer = allSortedLayers.getOrNull(it)
                 layer is CanvasLayer.BoxLayer || layer is CanvasLayer.GradientShape
