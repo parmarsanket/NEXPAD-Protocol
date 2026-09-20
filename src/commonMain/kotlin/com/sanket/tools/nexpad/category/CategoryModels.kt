@@ -1,5 +1,7 @@
 package com.sanket.tools.nexpad.category
 
+import kotlinx.serialization.Serializable
+
 /**
  * Shared behavior for anything that has a visual [CategorySymbol].
  *
@@ -129,6 +131,28 @@ enum class CategoryType(
             LOOKUP[stripped]?.let { return it }
 
             return null
+        }
+    }
+}
+
+/**
+ * Controller button labeling styles supported across NEXPAD.
+ * Allows seamless switching between Xbox letters (A, B, X, Y, LB, RB, LT, RT, LSB, RSB)
+ * and PlayStation geometric symbols & numbers (✕, ○, □, △, L1, R1, L2, R2, L3, R3).
+ */
+@Serializable
+enum class ControllerLabelStyle(val id: String, val displayName: String) {
+    XBOX("XBOX", "Xbox Style"),
+    PLAYSTATION("PLAYSTATION", "PlayStation Style");
+
+    companion object {
+        val DEFAULT = XBOX
+
+        fun fromId(id: String?): ControllerLabelStyle {
+            if (id == null) return DEFAULT
+            val clean = id.trim().uppercase()
+            return entries.firstOrNull { it.id == clean || it.name == clean }
+                ?: if (clean.contains("PS") || clean.contains("PLAYSTATION") || clean.contains("SONY")) PLAYSTATION else XBOX
         }
     }
 }

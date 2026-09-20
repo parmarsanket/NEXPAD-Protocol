@@ -97,4 +97,89 @@ object CategoryManager {
 
     /** Get standard SVG path data for a control key. */
     fun getIconSvgPath(key: String): String = getIconSymbol(key).svgPath
+
+    /**
+     * Resolves the button face label for a canonical [ControlKey] or identifier
+     * according to the requested [ControllerLabelStyle] (Xbox vs PlayStation).
+     */
+    fun getLabelForStyle(key: String, style: ControllerLabelStyle): String {
+        val canonical = ControlKey.fromIdentifier(key) ?: return key
+        return when (style) {
+            ControllerLabelStyle.XBOX -> when (canonical) {
+                ControlKey.A -> "A"
+                ControlKey.B -> "B"
+                ControlKey.X -> "X"
+                ControlKey.Y -> "Y"
+                ControlKey.LB -> "LB"
+                ControlKey.RB -> "RB"
+                ControlKey.LT -> "LT"
+                ControlKey.RT -> "RT"
+                ControlKey.LSB -> "LSB"
+                ControlKey.RSB -> "RSB"
+                ControlKey.LS -> "LS"
+                ControlKey.RS -> "RS"
+                else -> canonical.key
+            }
+            ControllerLabelStyle.PLAYSTATION -> when (canonical) {
+                ControlKey.A -> "✕"
+                ControlKey.B -> "○"
+                ControlKey.X -> "□"
+                ControlKey.Y -> "△"
+                ControlKey.LB -> "L1"
+                ControlKey.RB -> "R1"
+                ControlKey.LT -> "L2"
+                ControlKey.RT -> "R2"
+                ControlKey.LSB -> "L3"
+                ControlKey.RSB -> "R3"
+                ControlKey.LS -> "LS"
+                ControlKey.RS -> "RS"
+                else -> canonical.key
+            }
+        }
+    }
+
+    /**
+     * Resolves text for a button glyph or text layer given the active [ControllerLabelStyle].
+     * - If [text] matches a standard controller label/alias or console glyph, it translates it.
+     * - If [text] is a custom gameplay verb (e.g. "ATTACK", "DASH", "FIRE", "JUMP"), it is preserved untouched.
+     */
+    fun resolveGlyphForStyle(text: String, defaultControl: String? = null, style: ControllerLabelStyle): String {
+        val trimmed = text.trim()
+        if (trimmed.isEmpty()) return text
+
+        // Check if text itself is a known standard controller identifier
+        val ctrlFromText = ControlKey.fromIdentifier(trimmed)
+        if (ctrlFromText != null) {
+            return getLabelForStyle(ctrlFromText.key, style)
+        }
+
+        // Check against known PS symbols directly
+        when (trimmed) {
+            "✕", "×" -> return if (style == ControllerLabelStyle.PLAYSTATION) "✕" else "A"
+            "○" -> return if (style == ControllerLabelStyle.PLAYSTATION) "○" else "B"
+            "□" -> return if (style == ControllerLabelStyle.PLAYSTATION) "□" else "X"
+            "△" -> return if (style == ControllerLabelStyle.PLAYSTATION) "△" else "Y"
+            "L1" -> return if (style == ControllerLabelStyle.PLAYSTATION) "L1" else "LB"
+            "R1" -> return if (style == ControllerLabelStyle.PLAYSTATION) "R1" else "RB"
+            "L2" -> return if (style == ControllerLabelStyle.PLAYSTATION) "L2" else "LT"
+            "R2" -> return if (style == ControllerLabelStyle.PLAYSTATION) "R2" else "RT"
+            "L3" -> return if (style == ControllerLabelStyle.PLAYSTATION) "L3" else "LSB"
+            "R3" -> return if (style == ControllerLabelStyle.PLAYSTATION) "R3" else "RSB"
+        }
+
+        // If defaultControl is provided and text matches defaultControl's standard label in either style
+        if (defaultControl != null) {
+            val ctrlFromDef = ControlKey.fromIdentifier(defaultControl)
+            if (ctrlFromDef != null) {
+                val xboxLabel = getLabelForStyle(ctrlFromDef.key, ControllerLabelStyle.XBOX)
+                val psLabel = getLabelForStyle(ctrlFromDef.key, ControllerLabelStyle.PLAYSTATION)
+                if (trimmed.equals(xboxLabel, ignoreCase = true) || trimmed == psLabel) {
+                    return getLabelForStyle(ctrlFromDef.key, style)
+                }
+            }
+        }
+
+        // Not a standard controller label (e.g. "ATTACK", "DASH", "FIRE") -> preserve custom text!
+        return text
+    }
 }

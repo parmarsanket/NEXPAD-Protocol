@@ -282,4 +282,64 @@ class CategoryManagerTest {
         assertEquals(CategoryType.STICKS, CategoryType.fromIdentifier("TOUCHPADS"))
         assertEquals(CategoryType.STICKS, CategoryType.fromIdentifier("TRACKPAD"))
     }
+
+    @Test
+    fun testControllerLabelStylesXboxAndPlayStation() {
+        // 1. ControllerLabelStyle resolution
+        assertEquals(ControllerLabelStyle.XBOX, ControllerLabelStyle.fromId("XBOX"))
+        assertEquals(ControllerLabelStyle.XBOX, ControllerLabelStyle.fromId("xbox"))
+        assertEquals(ControllerLabelStyle.PLAYSTATION, ControllerLabelStyle.fromId("PLAYSTATION"))
+        assertEquals(ControllerLabelStyle.PLAYSTATION, ControllerLabelStyle.fromId("ps"))
+        assertEquals(ControllerLabelStyle.PLAYSTATION, ControllerLabelStyle.fromId("sony"))
+        assertEquals(ControllerLabelStyle.XBOX, ControllerLabelStyle.fromId(null))
+
+        // 2. Direct key label resolution
+        assertEquals("A", CategoryManager.getLabelForStyle("A", ControllerLabelStyle.XBOX))
+        assertEquals("✕", CategoryManager.getLabelForStyle("A", ControllerLabelStyle.PLAYSTATION))
+
+        assertEquals("B", CategoryManager.getLabelForStyle("B", ControllerLabelStyle.XBOX))
+        assertEquals("○", CategoryManager.getLabelForStyle("B", ControllerLabelStyle.PLAYSTATION))
+
+        assertEquals("X", CategoryManager.getLabelForStyle("X", ControllerLabelStyle.XBOX))
+        assertEquals("□", CategoryManager.getLabelForStyle("X", ControllerLabelStyle.PLAYSTATION))
+
+        assertEquals("Y", CategoryManager.getLabelForStyle("Y", ControllerLabelStyle.XBOX))
+        assertEquals("△", CategoryManager.getLabelForStyle("Y", ControllerLabelStyle.PLAYSTATION))
+
+        assertEquals("LB", CategoryManager.getLabelForStyle("LB", ControllerLabelStyle.XBOX))
+        assertEquals("L1", CategoryManager.getLabelForStyle("LB", ControllerLabelStyle.PLAYSTATION))
+
+        assertEquals("RB", CategoryManager.getLabelForStyle("RB", ControllerLabelStyle.XBOX))
+        assertEquals("R1", CategoryManager.getLabelForStyle("RB", ControllerLabelStyle.PLAYSTATION))
+
+        assertEquals("LT", CategoryManager.getLabelForStyle("LT", ControllerLabelStyle.XBOX))
+        assertEquals("L2", CategoryManager.getLabelForStyle("LT", ControllerLabelStyle.PLAYSTATION))
+
+        assertEquals("RT", CategoryManager.getLabelForStyle("RT", ControllerLabelStyle.XBOX))
+        assertEquals("R2", CategoryManager.getLabelForStyle("RT", ControllerLabelStyle.PLAYSTATION))
+
+        assertEquals("LSB", CategoryManager.getLabelForStyle("LSB", ControllerLabelStyle.XBOX))
+        assertEquals("L3", CategoryManager.getLabelForStyle("LSB", ControllerLabelStyle.PLAYSTATION))
+
+        assertEquals("RSB", CategoryManager.getLabelForStyle("RSB", ControllerLabelStyle.XBOX))
+        assertEquals("R3", CategoryManager.getLabelForStyle("RSB", ControllerLabelStyle.PLAYSTATION))
+
+        // 3. Dynamic glyph translation for standard buttons
+        assertEquals("✕", CategoryManager.resolveGlyphForStyle("A", "A", ControllerLabelStyle.PLAYSTATION))
+        assertEquals("A", CategoryManager.resolveGlyphForStyle("✕", "A", ControllerLabelStyle.XBOX))
+        assertEquals("L1", CategoryManager.resolveGlyphForStyle("LB", "LB", ControllerLabelStyle.PLAYSTATION))
+        assertEquals("LB", CategoryManager.resolveGlyphForStyle("L1", "LB", ControllerLabelStyle.XBOX))
+        assertEquals("L2", CategoryManager.resolveGlyphForStyle("LT", "LT", ControllerLabelStyle.PLAYSTATION))
+        assertEquals("LT", CategoryManager.resolveGlyphForStyle("L2", "LT", ControllerLabelStyle.XBOX))
+        assertEquals("L3", CategoryManager.resolveGlyphForStyle("LSB", "LSB", ControllerLabelStyle.PLAYSTATION))
+        assertEquals("LSB", CategoryManager.resolveGlyphForStyle("L3", "LSB", ControllerLabelStyle.XBOX))
+
+        // 4. Custom action verbs / special labels preserved untouched
+        assertEquals("ATTACK", CategoryManager.resolveGlyphForStyle("ATTACK", "X", ControllerLabelStyle.PLAYSTATION))
+        assertEquals("ATTACK", CategoryManager.resolveGlyphForStyle("ATTACK", "X", ControllerLabelStyle.XBOX))
+        assertEquals("DASH", CategoryManager.resolveGlyphForStyle("DASH", "B", ControllerLabelStyle.PLAYSTATION))
+        assertEquals("FIRE", CategoryManager.resolveGlyphForStyle("FIRE", "RT", ControllerLabelStyle.PLAYSTATION))
+        assertEquals("JUMP", CategoryManager.resolveGlyphForStyle("JUMP", "A", ControllerLabelStyle.PLAYSTATION))
+        assertEquals("SPECIAL", CategoryManager.resolveGlyphForStyle("SPECIAL", "Y", ControllerLabelStyle.PLAYSTATION))
+    }
 }
