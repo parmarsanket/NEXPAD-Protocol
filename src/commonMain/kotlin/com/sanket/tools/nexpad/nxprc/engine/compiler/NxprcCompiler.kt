@@ -491,8 +491,8 @@ object NxprcCompiler {
         }
 
         // 7. Center Text Label (Embossed 3D + Glow Text Shadows)
-        var centerGlyphAdded = false
-        if (textNode != null) {
+        var centerGlyphAdded = allTextNodes.size > 1
+        if (textNode != null && allTextNodes.size <= 1) {
             val textStyle = CssCascadeResolver.computeStyle(textNode, stylesheet, styleCache).base
             if (ButtonNodeSelector.isVisible(textStyle)) {
                 val text = textNode.findFirstText() ?: defaultControl

@@ -1762,5 +1762,67 @@ LINE TWO</button>
         assertEquals("rc.touch_ltp", docLtpExp.manifest.id)
         assertEquals("rc.touch_rtp", docRtpExp.manifest.id)
     }
-}
 
+    // ── Stage 6: New Constraint-Solver & Round-Trip Tests ────────────────────
+
+    /**
+     * Verifies that parseAspectRatio correctly parses CSS aspect-ratio formats.
+     */
+    @Test
+    fun testAspectRatioConstraintSolving() {
+        val parser = com.sanket.tools.nexpad.nxprc.engine.parsers.GeometryParser
+        assertEquals(1.0f, parser.parseAspectRatio("1")!!, 0.001f)
+        assertEquals(1.0f, parser.parseAspectRatio("1.0")!!, 0.001f)
+        assertEquals(16f / 9f, parser.parseAspectRatio("16 / 9")!!, 0.001f)
+        assertEquals(16f / 9f, parser.parseAspectRatio("16/9")!!, 0.001f)
+        assertEquals(4f / 3f, parser.parseAspectRatio("4 / 3")!!, 0.001f)
+        assertEquals(2.0f, parser.parseAspectRatio("2 / 1")!!, 0.001f)
+        assertNull(parser.parseAspectRatio(null))
+        assertNull(parser.parseAspectRatio("   "))
+        assertNull(parser.parseAspectRatio("4 / 0"))
+        assertNull(parser.parseAspectRatio("-1"))
+        val html = """
+            <style>
+              .square-btn { width: 80px; height: 80px; background: #3A86FF; border-radius: 8px; display: flex; align-items: center; justify-content: center; }
+              .inner { width: 40px; aspect-ratio: 1; background: white; border-radius: 50%; }
+            </style>
+            <div class="square-btn"><div class="inner"></div></div>
+        """.trimIndent()
+        val doc = NxprcPackager.compile(html, id = "rc.aspect_test", name = "Aspect Ratio Test")
+        assertNotNull(doc)
+        assertTrue(doc.canvas.layers.isNotEmpty(), "Aspect-ratio button should produce layers")
+        assertEquals("rc.aspect_test", doc.manifest.id)
+    }
+
+    /**
+     * Verifies parseDimensionWithCalc resolves calc() expressions correctly.
+     */
+    @Test
+    fun testCalcDimensionResolution() {
+        val parser = com.sanket.tools.nexpad.nxprc.engine.parsers.GeometryParser
+        val parent = 100f
+        assertEquals(80f, parser.parseDimensionWithCalc("80px", parent)!!, 0.001f)
+        assertEquals(50f, parser.parseDimensionWithCalc("50%", parent)!!, 0.001f)
+        assertEquals(80f, parser.parseDimensionWithCalc("calc(100% - 20px)", parent)!!, 0.001f)
+        assertEquals(55f, parser.parseDimensionWithCalc("calc(50% + 5px)", parent)!!, 0.001f)
+        assertEquals(95f, parser.parseDimensionWithCalc("calc(100% - 5%)", parent)!!, 0.001f)
+        assertEquals(100f, parser.parseDimensionWithCalc("calc(100% - 0px)", parent)!!, 0.001f)
+        assertNull(parser.parseDimensionWithCalc(null, parent))
+        assertNull(parser.parseDimensionWithCalc("  ", parent))
+        val html = """
+            <style>
+              .calc-btn { width: 80px; height: 80px; background: #9B59B6; border-radius: 50%; display: flex; align-items: center; justify-content: center; position: relative; }
+              .inner-ring { width: calc(100% - 16px); height: calc(100% - 16px); border: 2px solid rgba(255,255,255,0.4); border-radius: 50%; position: absolute; }
+            </style>
+            <div class="calc-btn"><div class="inner-ring"></div></div>
+        """.trimIndent()
+        val doc = NxprcPackager.compile(html, id = "rc.calc_test", name = "Calc Dimension Test")
+        assertNotNull(doc)
+        assertTrue(doc.canvas.layers.isNotEmpty(), "Calc button should produce layers")
+        val bytes = NxprcDocument.encodeToBytes(doc)
+        assertTrue(bytes.size > 4)
+        val decoded = NxprcDocument.decodeFromBytes(bytes)
+        assertTrue(decoded.isSuccess)
+        assertEquals(doc.manifest.id, decoded.getOrThrow().manifest.id)
+    }
+}

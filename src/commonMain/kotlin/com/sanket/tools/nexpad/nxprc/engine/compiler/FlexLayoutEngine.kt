@@ -7,6 +7,7 @@ import com.sanket.tools.nexpad.nxprc.engine.parsers.ComputedBoxBounds
 import com.sanket.tools.nexpad.nxprc.engine.parsers.GeometryParser
 import com.sanket.tools.nexpad.nxprc.engine.text.TextMetrics
 
+
 /**
  * High-precision CSS Flexbox layout engine for NXPRC documents.
  * Handles flex container distributions (row, column, reverse), justify-content, align-items,
@@ -418,5 +419,88 @@ internal object FlexLayoutEngine {
             currentParent = elem
         }
         return Pair(curX + pW / 2f, curY + pH / 2f)
+    }
+
+    // ── New: Compose-Constraints helpers (Stage 3) ────────────────────────────
+
+    /**
+     * Resolves the concrete pixel width and height of a flex in-flow child respecting:
+     * 1. Explicit CSS dimensions (plain px / %)
+     * 2. `calc()` expressions via [GeometryParser.parseDimensionWithCalc]
+     * 3. `aspect-ratio` enforcement via [GeometryParser.parseAspectRatio]
+     * 4. Intrinsic text sizing (existing logic, preserved unchanged)
+     *
+     * Returns a [ComputedBoxBounds] with resolved width/height (left/top remain 0 — the
+     * caller is responsible for position assignment).
+     *
+     * This function is called by the in-flow child loop in [layoutFlexContainerChildren].
+     * Existing callers that do NOT use calc() / aspect-ratio are unaffected — the fast
+     * paths short-circuit immediately.
+     */
+    internal fun resolveInFlowChildSize(
+        child: DomNode,
+        childStyle: Map<String, String>,
+        parentStyle: Map<String, String>,
+        rawBounds: ComputedBoxBounds,
+        parentWidth: Float,
+        parentHeight: Float
+    ): ComputedBoxBounds {
+        var w = rawBounds.width
+        var h = rawBounds.height
+
+        // 1. Resolve calc() on width
+        val widthStr = childStyle["width"]
+        if (widthStr != null && widthStr.startsWith("calc(", ignoreCase = true)) {
+            GeometryParser.parseDimensionWithCalc(widthStr, parentWidth)?.let { w = it }
+        }
+
+        // 2. Resolve calc() on height
+        val heightStr = childStyle["height"]
+        if (heightStr != null && heightStr.startsWith("calc(", ignoreCase = true)) {
+            GeometryParser.parseDimensionWithCalc(heightStr, parentHeight)?.let { h = it }
+        }
+
+        // 3. Apply aspect-ratio if present (and only one axis is explicitly constrained)
+        val aspectRatio = GeometryParser.parseAspectRatio(childStyle["aspect-ratio"])
+        if (aspectRatio != null) {
+            when {
+                widthStr != null && heightStr == null -> {
+                    // Width is explicit → derive height
+                    h = (w / aspectRatio).coerceAtLeast(1f)
+                }
+                heightStr != null && widthStr == null -> {
+                    // Height is explicit → derive width
+                    w = (h * aspectRatio).coerceAtLeast(1f)
+                }
+                widthStr == null && heightStr == null -> {
+                    // Neither axis explicit — enforce ratio on the raw (parent-fill) width
+                    h = (w / aspectRatio).coerceAtLeast(1f)
+                }
+                // Both explicit — author wins, ignore aspect-ratio (matches browser behaviour)
+            }
+        }
+
+        // 4. Intrinsic text sizing (existing logic, only triggers when width was null originally)
+        if (widthStr == null && aspectRatio == null) {
+            val text = child.findFirstText()
+            if (text != null) {
+                val fontSize = GeometryParser.parseFontSize(
+                    childStyle["font-size"] ?: parentStyle["font-size"]
+                ) ?: 16f
+                val fontWeight = childStyle["font-weight"]
+                    ?.let { GeometryParser.parseFontWeight(it) } ?: 400
+                val metrics = TextMetrics.measure(text, fontSize, fontWeight)
+                val maxW = (parentWidth - 0f).coerceAtLeast(fontSize) // padding handled by parent
+                w = metrics.width.coerceIn(fontSize, maxW)
+                if (heightStr == null) h = metrics.height
+            }
+        }
+
+        // 5. Clamp via LayoutConstraints (min/max from parent available space)
+        val constraints = LayoutConstraints.atMost(parentWidth.coerceAtLeast(1f), parentHeight.coerceAtLeast(1f))
+        w = constraints.constrainWidth(w)
+        h = constraints.constrainHeight(h)
+
+        return rawBounds.copy(width = w, height = h)
     }
 }

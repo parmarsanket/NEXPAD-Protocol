@@ -223,6 +223,13 @@ internal object DomTreeCompiler {
                     val scale = (maxOf(cWidth / buttonWidth, cHeight / buttonHeight)).coerceIn(0.05f, 2.0f)
                     val offX = globalX / buttonWidth
                     val offY = globalY / buttonHeight
+                    val svgTransform = AnimationParser.parseTransforms(
+                        childStyle["transform"],
+                        childStyle["transform-origin"],
+                        cWidth,
+                        cHeight
+                    )
+                    val svgRotation = svgTransform.rotationDegrees
                     svgShapes.forEachIndexed { sIdx, shape ->
                         val resolvedFill = shape.fill ?: if (sIdx == 0 && shape.stroke == null) FillBrush.Solid(NxprcDefaults.DEFAULT_ACCENT_COLOR) else shape.fill ?: FillBrush.Solid(0x00000000L)
                         layerCollector.addLayer(
@@ -231,6 +238,7 @@ internal object DomTreeCompiler {
                                 pathData = shape.pathData,
                                 fill = resolvedFill,
                                 stroke = shape.stroke,
+                                rotationDegrees = svgRotation,
                                 offsetXRatio = offX,
                                 offsetYRatio = offY,
                                 scale = scale
@@ -334,15 +342,25 @@ internal object DomTreeCompiler {
                     wordBreak = childStyle["word-break"]
                 )
 
+                val hasExplicitWidth = childStyle["width"] != null
+                val hasExplicitHeight = childStyle["height"] != null
+                val effectiveTextW = if (!hasExplicitWidth) {
+                    val metrics = com.sanket.tools.nexpad.nxprc.engine.text.TextMetrics.measure(childText, tFontSize, tWeight)
+                    metrics.width.coerceIn(tFontSize, cWidth)
+                } else cWidth
+                val effectiveTextH = if (!hasExplicitHeight) {
+                    tFontSize * 1.2f
+                } else cHeight
+
                 if (lineResult.lines.size > 1) {
-                    val baseCenterY = globalY + cHeight / 2f
+                    val baseCenterY = globalY + effectiveTextH / 2f
                     val totalH = lineResult.totalHeight
                     val startY = baseCenterY - totalH / 2f + lineResult.lineHeight / 2f
 
                     lineResult.lines.forEachIndexed { lIdx, line ->
                         if (line.isNotEmpty()) {
                             val lineCenterY = startY + lIdx * lineResult.lineHeight
-                            val offXRatio = (globalX + cWidth / 2f - buttonWidth / 2f) / buttonWidth
+                            val offXRatio = (globalX + effectiveTextW / 2f - buttonWidth / 2f) / buttonWidth
                             val offYRatio = (lineCenterY - buttonHeight / 2f) / buttonHeight
 
                             layerCollector.addLayer(
@@ -364,8 +382,8 @@ internal object DomTreeCompiler {
                         }
                     }
                 } else {
-                    val childCenterX = globalX + cWidth / 2f
-                    val childCenterY = globalY + cHeight / 2f
+                    val childCenterX = globalX + effectiveTextW / 2f
+                    val childCenterY = globalY + effectiveTextH / 2f
                     val offXRatio = (childCenterX - buttonWidth / 2f) / buttonWidth
                     val offYRatio = (childCenterY - buttonHeight / 2f) / buttonHeight
 

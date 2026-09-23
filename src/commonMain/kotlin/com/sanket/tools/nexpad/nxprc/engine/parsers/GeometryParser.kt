@@ -129,6 +129,19 @@ object GeometryParser {
             height += padTop + padBottom
         }
 
+        // Apply aspect-ratio if present and only one dimension is explicitly set
+        val aspectRatio = parseAspectRatio(style["aspect-ratio"])
+        if (aspectRatio != null && aspectRatio > 0f) {
+            when {
+                explicitWidth != null && explicitHeight == null -> {
+                    height = (width / aspectRatio).coerceAtLeast(1f)
+                }
+                explicitHeight != null && explicitWidth == null -> {
+                    width = (height * aspectRatio).coerceAtLeast(1f)
+                }
+            }
+        }
+
         val left = when {
             constraints.left.isExplicit -> constraints.left.resolve(parentW) ?: 0f
             constraints.right.isExplicit -> (parentW - (constraints.right.resolve(parentW) ?: 0f) - width)
@@ -207,6 +220,9 @@ object GeometryParser {
     fun parsePixelOrPercent(valStr: String?, parentDim: Float, fallback: Float): Float {
         if (valStr.isNullOrBlank()) return fallback
         val clean = valStr.trim().lowercase()
+        if (clean.startsWith("calc(")) {
+            return parseDimensionWithCalc(clean, parentDim) ?: fallback
+        }
         if (clean.endsWith("%")) {
             val pct = clean.removeSuffix("%").toFloatOrNull() ?: return fallback
             return (pct / 100f) * parentDim
@@ -328,5 +344,105 @@ object GeometryParser {
 
     fun parseFontSize(str: String?): Float? = TypographyParser.parseFontSize(str)
     fun parseFontWeight(str: String?): Int = TypographyParser.parseFontWeight(str)
+
+    // ── New: Compose-Constraints extensions ──────────────────────────────────
+
+    /**
+     * Parses a CSS `aspect-ratio` property string into a [Float] width-to-height ratio.
+     *
+     * Supported formats:
+     *  - `"1"` or `"1.0"` → 1.0f (square)
+     *  - `"16 / 9"` or `"16/9"` → 1.777…
+     *  - `"4 / 3"` → 1.333…
+     *
+     * Returns `null` if the string is null, blank, or cannot be parsed.
+     * Never throws; all errors produce null.
+     */
+    fun parseAspectRatio(aspectRatioStr: String?): Float? {
+        if (aspectRatioStr.isNullOrBlank()) return null
+        val clean = aspectRatioStr.trim()
+        return if (clean.contains('/')) {
+            val parts = clean.split('/').map { it.trim() }
+            if (parts.size == 2) {
+                val num = parts[0].toFloatOrNull() ?: return null
+                val den = parts[1].toFloatOrNull() ?: return null
+                if (den == 0f) return null
+                (num / den).takeIf { it.isFinite() && it > 0f }
+            } else null
+        } else {
+            val ratio = clean.toFloatOrNull()
+            ratio?.takeIf { it.isFinite() && it > 0f }
+        }
+    }
+
+    /**
+     * Parses a CSS dimension string that may contain a `calc()` expression into an absolute pixel value.
+     *
+     * Supports:
+     *  - Plain px: `"80px"` → 80f
+     *  - Plain %: `"50%"` → `parentDimension * 0.5f`
+     *  - `calc(100% - 20px)` → `parentDimension - 20f`
+     *  - `calc(50% + 5px)`  → `parentDimension * 0.5f + 5f`
+     *  - `calc(100% - 5%)` → `parentDimension * 0.95f`
+     *
+     * Returns `null` if the value is null, blank, or unresolvable.
+     * Falls back to [parsePixelOrPercent] for non-calc values.
+     */
+    fun parseDimensionWithCalc(value: String?, parentDimension: Float): Float? {
+        if (value.isNullOrBlank()) return null
+        val clean = value.trim()
+
+        // Fast-path: no calc — delegate to existing parser
+        if (!clean.startsWith("calc(", ignoreCase = true)) {
+            val fallback = parsePixelOrPercent(clean, parentDimension, Float.NaN)
+            return if (fallback.isNaN()) null else fallback
+        }
+
+        // Extract inner expression from calc(...)
+        val openParen = clean.indexOf('(')
+        val closeParen = clean.lastIndexOf(')')
+        if (openParen == -1 || closeParen <= openParen) return null
+        val expr = clean.substring(openParen + 1, closeParen).trim()
+
+        // Find the first top-level + or - operator (not part of a number)
+        val plusIdx = expr.lastIndexOf('+')
+        val minusIdx = findCalcSubtractionIndex(expr)
+
+        return when {
+            plusIdx > 0 -> {
+                val left = parseDimensionToken(expr.substring(0, plusIdx).trim(), parentDimension) ?: return null
+                val right = parseDimensionToken(expr.substring(plusIdx + 1).trim(), parentDimension) ?: return null
+                left + right
+            }
+            minusIdx > 0 -> {
+                val left = parseDimensionToken(expr.substring(0, minusIdx).trim(), parentDimension) ?: return null
+                val right = parseDimensionToken(expr.substring(minusIdx + 1).trim(), parentDimension) ?: return null
+                left - right
+            }
+            else -> parseDimensionToken(expr, parentDimension)
+        }
+    }
+
+    /** Finds the index of a subtraction operator in a calc expression (not a leading minus sign). */
+    private fun findCalcSubtractionIndex(expr: String): Int {
+        // Scan right-to-left for a '-' preceded by a space (to distinguish from negative numbers)
+        for (i in expr.indices.reversed()) {
+            if (expr[i] == '-' && i > 0 && expr[i - 1] == ' ') return i
+        }
+        return -1
+    }
+
+    /** Parses a single calc operand token: either `"%"`, `"px"`, or a plain number. */
+    private fun parseDimensionToken(token: String, parentDimension: Float): Float? {
+        val clean = token.trim().lowercase()
+        return when {
+            clean.endsWith('%') -> {
+                val pct = clean.removeSuffix("%").trim().toFloatOrNull() ?: return null
+                (pct / 100f) * parentDimension
+            }
+            clean.endsWith("px") -> clean.removeSuffix("px").trim().toFloatOrNull()
+            else -> clean.toFloatOrNull()
+        }
+    }
 
 }
