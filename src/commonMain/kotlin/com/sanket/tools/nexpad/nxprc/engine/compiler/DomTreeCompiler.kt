@@ -260,8 +260,6 @@ internal object DomTreeCompiler {
                 val svgShapes = child.getAllSvgShapes(stylesheet, paintServers)
                 if (svgShapes.isNotEmpty()) {
                     val scale = (maxOf(cWidth / buttonWidth, cHeight / buttonHeight)).coerceIn(0.05f, 2.0f)
-                    val offX = globalX / buttonWidth
-                    val offY = globalY / buttonHeight
                     val svgTransform = AnimationParser.parseTransforms(
                         childStyle["transform"],
                         childStyle["transform-origin"],
@@ -269,6 +267,8 @@ internal object DomTreeCompiler {
                         cHeight
                     )
                     val svgRotation = svgTransform.rotationDegrees
+                    val offX = (globalX + svgTransform.translateX) / buttonWidth
+                    val offY = (globalY + svgTransform.translateY) / buttonHeight
                     svgShapes.forEachIndexed { sIdx, shape ->
                         val resolvedFill = shape.fill ?: if (sIdx == 0 && shape.stroke == null) FillBrush.Solid(NxprcDefaults.DEFAULT_ACCENT_COLOR) else shape.fill ?: FillBrush.Solid(0x00000000L)
                         layerCollector.addLayer(
