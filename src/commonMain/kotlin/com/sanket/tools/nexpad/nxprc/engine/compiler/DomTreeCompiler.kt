@@ -2,7 +2,6 @@ package com.sanket.tools.nexpad.nxprc.engine.compiler
 
 import com.sanket.tools.nexpad.nxprc.CanvasLayer
 import com.sanket.tools.nexpad.nxprc.FillBrush
-import com.sanket.tools.nexpad.nxprc.LayerShapeType
 import com.sanket.tools.nexpad.nxprc.NxprcDefaults
 import com.sanket.tools.nexpad.nxprc.engine.classifier.NodeRoleClassifier
 import com.sanket.tools.nexpad.nxprc.engine.classifier.ShapeClassifier
@@ -110,16 +109,17 @@ internal object DomTreeCompiler {
                 isTopOnly = isPseudoTopOnly
             )
             val pClip = GeometryParser.parseClipPath(pseudoStyle["clip-path"] ?: pseudoStyle["-webkit-clip-path"], pWidth, pHeight)
-            val isPOval = pseudoStyle["border-radius"]?.contains("50%") == true ||
-                (pRadii.topLeft >= (pWidth * 0.35f) && pRadii.topRight >= (pWidth * 0.35f) &&
-                 pRadii.bottomRight >= (pWidth * 0.35f) && pRadii.bottomLeft >= (pWidth * 0.35f))
-            val pShape = when {
-                pClip != null -> pClip.shapeType
-                isPOval -> LayerShapeType.OVAL.name
-                else -> LayerShapeType.ROUNDED_RECT.name
-            }
-            val pPolySides = pClip?.polygonSides ?: 0
-            val pPolyPath = pClip?.pathData ?: ""
+            // ── ShapeClassifier replaces inline 0.35f oval check for pseudo-elements ────────────────
+            val pShapeDescriptor = ShapeClassifier.classify(
+                radii           = pRadii,
+                width           = pWidth,
+                height          = pHeight,
+                borderRadiusCss = pseudoStyle["border-radius"],
+                clipPath        = pClip
+            )
+            val pShape     = pShapeDescriptor.shapeTypeId
+            val pPolySides = pShapeDescriptor.polygonSides
+            val pPolyPath  = pShapeDescriptor.pathData
 
             val pZ = GeometryParser.parseZIndex(pseudoStyle)
             val pStack = parentStack + (if (isBefore) 1 else 2) + pZ * 10
