@@ -389,7 +389,7 @@ object NxprcCompiler {
             parentGlobalX = 0f,
             parentGlobalY = 0f,
             isParentClipping = baseProps["overflow"] == "hidden" || rootClip != null,
-            parentStackBase = LayerStack.CHILDREN_BASE,
+            parentStackBase = LayerStack.CONTENT_BASE + LayerStack.CHILD_OFFSET,
             buttonWidth = buttonWidth,
             buttonHeight = buttonHeight,
             baseProps = baseProps,

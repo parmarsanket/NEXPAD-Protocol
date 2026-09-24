@@ -45,7 +45,7 @@ internal object DomTreeCompiler {
         parentGlobalX: Float,
         parentGlobalY: Float,
         isParentClipping: Boolean = false,
-        parentStackBase: Int = LayerStack.CHILDREN_BASE,
+        parentStackBase: Int = LayerStack.CONTENT_BASE + LayerStack.CHILD_OFFSET,
         buttonWidth: Float,
         buttonHeight: Float,
         baseProps: Map<String, String>,
@@ -197,7 +197,7 @@ internal object DomTreeCompiler {
             val cFilter = FilterParser.parse(childStyle["filter"] ?: child.attributes["filter"], svgFilters)
 
             val childZ = GeometryParser.parseZIndex(childStyle)
-            val childStack = parentStackBase + LayerStack.childSlot(childZ)  // replaces: parentStackBase + 10 + childZ * 100
+            val childStack = LayerStack.childSlot(parentStackBase, childZ)
 
             // If child is an SVG element, extract its shapes directly into VectorPath layers
             if (child.tag.equals("svg", ignoreCase = true)) {

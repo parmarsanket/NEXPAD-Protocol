@@ -58,6 +58,9 @@ object NodeRoleClassifier {
         "frame", "border", "surround", "shell", "body", "bg", "background"
     )
 
+    /** Keywords that explicitly override a thumb-cap ancestor container. */
+    private val EXPLICIT_BASE_KEYWORDS = setOf("base", "socket")
+
     private val TEXT_KEYWORDS = setOf(
         "label", "text", "glyph", "letter", "char", "caption",
         "title", "name", "symbol", "icon-text", "badge"
@@ -124,8 +127,8 @@ object NodeRoleClassifier {
             val aTokens = ancestor.allIdentifierTokens()
             when {
                 aTokens.any { it in THUMB_KEYWORDS } -> {
-                    // Inside a thumb-cap container → child is a cap unless explicitly marked base
-                    return if (tokens.any { it in BASE_KEYWORDS }) NodeRole.BASE_SOCKET
+                    // Inside a thumb-cap container → child is a cap unless explicitly marked base or socket
+                    return if (tokens.any { it in EXPLICIT_BASE_KEYWORDS }) NodeRole.BASE_SOCKET
                     else NodeRole.THUMB_CAP
                 }
                 aTokens.any { it in BASE_KEYWORDS } -> return NodeRole.BASE_SOCKET

@@ -243,12 +243,9 @@ class NxprcLayerAuditTest {
             totalLayers(atLeast = 2)
             // [0] = primary outer oval
             primaryLayer(0) { shapeOval() }
-            // [1] = CenterGlyph (label), [2] = inner div BoxLayer
-            // We care that the inner div exists as a BoxLayer somewhere
+            // [1] = inner div BoxLayer, [2] = CenterGlyph (label renders on top)
             hasLayer<CanvasLayer.BoxLayer>()
-            // The inner div BoxLayer should be OVAL and positioned at 12,12 72x72
-            // (It appears at idx=2 after CenterGlyph at idx=1)
-            boxLayer(2) {
+            boxLayer(1) {
                 shapeOval()
                 px(left = 12f, top = 12f, width = 72f, height = 72f, bW = 96f, bH = 96f, tolPx = 3f)
             }
@@ -284,19 +281,18 @@ class NxprcLayerAuditTest {
 
         NxprcLayerAudit.auditHtml(html, "audit.l3.deep-oval", "L3 Deep Oval", bW = 120f, bH = 120f) {
             totalLayers(atLeast = 3)
-            // [0]=GradientShape (outer oval), ring and core are BoxLayer children
+            // [0]=GradientShape (outer oval), ring and core are BoxLayer children, [3]=CenterGlyph on top
             primaryLayer(0) {
                 shapeOval()
                 ratio(rW = 1.0f, rH = 1.0f, rX = 0f, rY = 0f, tol = 0.02f)
             }
-            // CenterGlyph is at idx=1, ring BoxLayer is at idx=2, core BoxLayer at idx=3
-            // Engine actual: [2]=OVAL offX=0.067 offY=0.067 w=0.867 h=0.867 (ring: 8,8,104,104)
-            //                [3]=OVAL offX=0.200 offY=0.200 w=0.600 h=0.600 (core: 24,24,72,72)
-            boxLayer(2) {
+            // Ring BoxLayer at idx=1: 8,8,104,104
+            boxLayer(1) {
                 shapeOval()
                 px(left = 8f, top = 8f, width = 104f, height = 104f, bW = 120f, bH = 120f, tolPx = 3f)
             }
-            boxLayer(3) {
+            // Core BoxLayer at idx=2: 24,24,72,72
+            boxLayer(2) {
                 shapeOval()
                 px(left = 24f, top = 24f, width = 72f, height = 72f, bW = 120f, bH = 120f, tolPx = 3f)
             }

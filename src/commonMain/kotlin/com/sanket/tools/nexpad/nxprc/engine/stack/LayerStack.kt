@@ -42,35 +42,23 @@ object LayerStack {
     /** Inset shadow / perimeter groove ring. */
     const val INNER_SHADOW: Int   = 3_100
 
-    // ── Pseudo-element zones ─────────────────────────────────────────────────
-
-    /** Base slot for `::before` pseudo-elements. */
-    const val BEFORE_BASE: Int    = 4_000
-    /** Per-unit z-index increment within the `::before` zone. */
-    const val BEFORE_STEP: Int    =   100
-
-    // ── DOM children zone ────────────────────────────────────────────────────
-
-    /** Base slot for recursively compiled DOM child layers. */
+    // ── Content stacking context zone (base = 5_000) ─────────────────────────
+    /** Base slot for in-flow content (::before, DOM children, ::after). */
+    const val CONTENT_BASE: Int   = 5_000
+    /** Alias for CONTENT_BASE to maintain backwards compatibility. */
     const val CHILDREN_BASE: Int  = 5_000
-    /** Per-unit z-index increment within the DOM children zone. */
-    const val CHILDREN_STEP: Int  =   100
+    /** Per-unit CSS z-index step. */
+    const val Z_STEP: Int         =   100
 
-    // ── After pseudo-element zone ────────────────────────────────────────────
-
-    /** Base slot for `::after` pseudo-elements. */
-    const val AFTER_BASE: Int     = 6_000
-    /** Per-unit z-index increment within the `::after` zone. */
-    const val AFTER_STEP: Int     =   100
+    const val BEFORE_OFFSET: Int  =    10
+    const val CHILD_OFFSET: Int   =    20
+    const val AFTER_OFFSET: Int   =    80
+    const val TEXT_OFFSET: Int    =    90
 
     // ── Text / glyph zone ────────────────────────────────────────────────────
 
-    /** Default text/CenterGlyph slot (no explicit CSS z-index). */
+    /** Default text/CenterGlyph slot (no explicit CSS z-index; renders on top of un-indexed DOM children). */
     const val TEXT_DEFAULT: Int   = 7_000
-    /** Base slot when an explicit CSS `z-index` is set on the text node. */
-    const val TEXT_BASE: Int      = 7_000
-    /** Per-unit z-index increment within the text zone. */
-    const val TEXT_STEP: Int      =   100
 
     // ── Joystick thumb-cap offset ────────────────────────────────────────────
 
@@ -79,35 +67,43 @@ object LayerStack {
      * Ensures all cap layers render above all base/housing layers
      * regardless of their z-index within their own zone.
      */
-    const val THUMB_CAP_OFFSET: Int = 10_000
+    const val THUMB_CAP_OFFSET: Int = 20_000
 
     // ── Slot computation helpers ─────────────────────────────────────────────
 
     /**
-     * Computes the exact stack slot for a DOM child layer with a given CSS `z-index`.
-     * A z-index of 0 maps to [CHILDREN_BASE]; each additional unit adds [CHILDREN_STEP].
+     * Computes the stack slot for a `::before` pseudo-element.
      */
-    fun childSlot(zIndex: Int): Int = CHILDREN_BASE + zIndex * CHILDREN_STEP
+    fun beforeSlot(zIndex: Int): Int =
+        CONTENT_BASE + zIndex * Z_STEP + BEFORE_OFFSET
 
     /**
-     * Computes the stack slot for a `::before` layer.
-     * Returns [BEFORE_BASE] when z-index is 0.
+     * Computes the stack slot for a `::after` pseudo-element.
      */
-    fun beforeSlot(zIndex: Int): Int = BEFORE_BASE + zIndex * BEFORE_STEP
+    fun afterSlot(zIndex: Int): Int =
+        CONTENT_BASE + zIndex * Z_STEP + AFTER_OFFSET
 
     /**
-     * Computes the stack slot for a `::after` layer.
-     * A small `+1` offset within the after-step distinguishes it from ::before
-     * at the same z-index level.
+     * Computes the stack slot for a DOM child layer with inherited parent stack.
+     * When [zIndex] != 0, sorts strictly by z-index.
+     * When [zIndex] == 0, stacks above [parentStack] by depth (+2).
      */
-    fun afterSlot(zIndex: Int): Int = AFTER_BASE + zIndex * AFTER_STEP + 1
+    fun childSlot(parentStack: Int, zIndex: Int): Int =
+        if (zIndex != 0) CONTENT_BASE + zIndex * Z_STEP + CHILD_OFFSET
+        else parentStack + 2
+
+    /**
+     * Computes the stack slot for a DOM child layer given only [zIndex].
+     */
+    fun childSlot(zIndex: Int): Int =
+        CONTENT_BASE + zIndex * Z_STEP + CHILD_OFFSET
 
     /**
      * Computes the stack slot for a text/glyph layer.
-     * Returns [TEXT_DEFAULT] when `zIndex == 0` (most text has no explicit z-index).
+     * Returns [TEXT_DEFAULT] (7_000) when `zIndex == 0` so text renders above un-indexed children.
      */
     fun textSlot(zIndex: Int): Int =
-        if (zIndex == 0) TEXT_DEFAULT else TEXT_BASE + zIndex * TEXT_STEP + 2
+        if (zIndex == 0) TEXT_DEFAULT else CONTENT_BASE + zIndex * Z_STEP + TEXT_OFFSET
 
     /**
      * Returns the thumb-cap adjusted slot — adds [THUMB_CAP_OFFSET] so all
