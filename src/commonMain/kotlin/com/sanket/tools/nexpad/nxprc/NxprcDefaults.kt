@@ -2,20 +2,17 @@ package com.sanket.tools.nexpad.nxprc
 
 /** Shared defaults and safety limits for the NXPRC model/compiler. */
 object NxprcDefaults {
-    const val DEFAULT_VIEW_BOX_SIZE = 100f
-    const val DEFAULT_BUTTON_SIZE = 100f
-    const val DEFAULT_MIN_SIZE_DP = 40
-    /** HIGH 2 FIX: raised from 200 → 300 so DPAD cluster / joystick assemblies (up to 300dp) are
-     *  stored faithfully in the manifest without silent truncation. */
-    const val DEFAULT_MAX_SIZE_DP = 300
+    const val DEFAULT_VIEW_BOX_SIZE = GeometryConstants.DEFAULT_VIEW_BOX_SIZE
+    const val DEFAULT_BUTTON_SIZE = GeometryConstants.DEFAULT_BUTTON_SIZE
+    const val DEFAULT_MIN_SIZE_DP = GeometryConstants.DEFAULT_MIN_SIZE_DP
+    const val DEFAULT_MAX_SIZE_DP = GeometryConstants.DEFAULT_MAX_SIZE_DP
 
-    const val DEFAULT_FILL_COLOR = 0xFF0A192FL
-    const val DEFAULT_SHADOW_COLOR = 0x73000000L
-    const val DEFAULT_HIGHLIGHT_COLOR = 0xB3FFFFFFL
-    const val DEFAULT_ACCENT_COLOR = 0xFF00F0FFL
+    const val DEFAULT_FILL_COLOR = VisualDesignTokens.DEFAULT_FILL_COLOR
+    const val DEFAULT_SHADOW_COLOR = VisualDesignTokens.DEFAULT_SHADOW_COLOR
+    const val DEFAULT_HIGHLIGHT_COLOR = VisualDesignTokens.DEFAULT_HIGHLIGHT_COLOR
+    const val DEFAULT_ACCENT_COLOR = VisualDesignTokens.DEFAULT_ACCENT_COLOR
 
-    /** Byte-level limit (not character count) enforced by NxprcInputValidator.validateHtml(). */
-    const val MAX_HTML_SIZE = 2 * 1024 * 1024
-    const val MAX_ID_LENGTH = 128
-    const val MAX_NAME_LENGTH = 256
+    const val MAX_HTML_SIZE = CompilerLimits.MAX_HTML_SIZE
+    const val MAX_ID_LENGTH = CompilerLimits.MAX_ID_LENGTH
+    const val MAX_NAME_LENGTH = CompilerLimits.MAX_NAME_LENGTH
 }

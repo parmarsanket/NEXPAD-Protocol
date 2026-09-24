@@ -78,39 +78,40 @@ data class AffineMatrix2D(
             for (match in matches) {
                 val op = match.groupValues[1].lowercase()
                 val rawArgs = match.groupValues[2]
-                val args = rawArgs.split(Regex("[,\\s]+"))
+                val rawArgTokens = rawArgs.split(Regex("[,\\s]+")).map { it.trim() }.filter { it.isNotEmpty() }
+                val numericArgs = rawArgTokens
                     .map { it.replace(Regex("[a-zA-Z%]+"), "").trim() }
                     .filter { it.isNotEmpty() }
                     .mapNotNull { it.toFloatOrNull() }
 
                 val matrix = when (op) {
                     "translate" -> {
-                        val tx = args.getOrNull(0) ?: 0f
-                        val ty = args.getOrNull(1) ?: 0f
+                        val tx = numericArgs.getOrNull(0) ?: 0f
+                        val ty = numericArgs.getOrNull(1) ?: 0f
                         translate(tx, ty)
                     }
                     "rotate" -> {
-                        val deg = args.getOrNull(0) ?: 0f
-                        val cx = args.getOrNull(1) ?: 0f
-                        val cy = args.getOrNull(2) ?: 0f
+                        val deg = rawArgTokens.firstOrNull()?.let { AngleUnit.parseToDegrees(it) } ?: (numericArgs.getOrNull(0) ?: 0f)
+                        val cx = numericArgs.getOrNull(1) ?: 0f
+                        val cy = numericArgs.getOrNull(2) ?: 0f
                         rotate(deg, cx, cy)
                     }
                     "scale" -> {
-                        val sx = args.getOrNull(0) ?: 1f
-                        val sy = args.getOrNull(1) ?: sx
+                        val sx = numericArgs.getOrNull(0) ?: 1f
+                        val sy = numericArgs.getOrNull(1) ?: sx
                         scale(sx, sy)
                     }
                     "matrix" -> {
-                        if (args.size >= 6) {
-                            AffineMatrix2D(args[0], args[1], args[2], args[3], args[4], args[5])
+                        if (numericArgs.size >= 6) {
+                            AffineMatrix2D(numericArgs[0], numericArgs[1], numericArgs[2], numericArgs[3], numericArgs[4], numericArgs[5])
                         } else IDENTITY
                     }
                     "skewx" -> {
-                        val deg = args.getOrNull(0) ?: 0f
+                        val deg = rawArgTokens.firstOrNull()?.let { AngleUnit.parseToDegrees(it) } ?: (numericArgs.getOrNull(0) ?: 0f)
                         skewX(deg)
                     }
                     "skewy" -> {
-                        val deg = args.getOrNull(0) ?: 0f
+                        val deg = rawArgTokens.firstOrNull()?.let { AngleUnit.parseToDegrees(it) } ?: (numericArgs.getOrNull(0) ?: 0f)
                         skewY(deg)
                     }
                     else -> IDENTITY

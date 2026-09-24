@@ -18,6 +18,11 @@ class DomNode(
     companion object {
         private val counter = java.util.concurrent.atomic.AtomicInteger(0)
         private fun nextNodeIndex(): Int = counter.incrementAndGet()
+
+        /** Resets the node index counter to 0 for deterministic testing and snapshotting. */
+        fun resetNodeIndexCounterForTesting() {
+            counter.set(0)
+        }
     }
 
     fun findFirst(predicate: (DomNode) -> Boolean): DomNode? {

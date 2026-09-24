@@ -17,6 +17,11 @@ import com.sanket.tools.nexpad.nxprc.engine.text.TextMetrics
  * Handles flex container distributions (row, column, reverse), justify-content, align-items,
  * gap, padding, and hierarchical global centering across arbitrary DOM depths.
  */
+/**
+ * Main-axis and cross-axis resolved gaps for flex containers.
+ */
+data class FlexGaps(val main: Float, val cross: Float)
+
 internal object FlexLayoutEngine {
 
     /**
@@ -190,8 +195,19 @@ internal object FlexLayoutEngine {
         val pLeft = GeometryParser.parsePixelOrPercent(parentStyle["padding-left"], parentWidth, pad?.left ?: 0f)
         val pRight = GeometryParser.parsePixelOrPercent(parentStyle["padding-right"], parentWidth, pad?.right ?: 0f)
 
-        val gapStr = parentStyle["gap"] ?: (if (isColumn) parentStyle["row-gap"] else parentStyle["column-gap"])
-        val gap = GeometryParser.parsePixelOrPercent(gapStr, if (isColumn) parentHeight else parentWidth, 0f)
+        val rawGap = parentStyle["gap"]?.trim()
+        val gapParts = rawGap?.split(Regex("""\s+"""))?.filter { it.isNotBlank() } ?: emptyList()
+        val shorthandRowGap = gapParts.getOrNull(0)
+        val shorthandColGap = gapParts.getOrNull(1) ?: shorthandRowGap
+
+        val rowGapStr = parentStyle["row-gap"]?.trim() ?: shorthandRowGap
+        val colGapStr = parentStyle["column-gap"]?.trim() ?: shorthandColGap
+
+        val rowGap = GeometryParser.parsePixelOrPercent(rowGapStr, parentHeight, 0f)
+        val colGap = GeometryParser.parsePixelOrPercent(colGapStr, parentWidth, 0f)
+        val flexGaps = if (isColumn) FlexGaps(main = rowGap, cross = colGap) else FlexGaps(main = colGap, cross = rowGap)
+        val gap = flexGaps.main
+        val crossGap = flexGaps.cross
 
         val inFlowList = mutableListOf<Pair<DomNode, ComputedBoxBounds>>()
 
@@ -204,27 +220,15 @@ internal object FlexLayoutEngine {
             if (isOutOfFlow) {
                 result[child] = resolvePositionedChildBounds(parentStyle, childStyle, rawBounds, parentWidth, parentHeight)
             } else {
-                var w = rawBounds.width
-                var h = rawBounds.height
-                if (childStyle["width"] == null) {
-                    val text = child.findFirstText()
-                    if (text != null) {
-                        val fontSize = GeometryParser.parseFontSize(childStyle["font-size"] ?: parentStyle["font-size"]) ?: 16f
-                        val fontWeight = childStyle["font-weight"]?.let { GeometryParser.parseFontWeight(it) } ?: 400
-                        val metrics = TextMetrics.measure(text, fontSize, fontWeight)
-                        w = metrics.width.coerceIn(fontSize, (parentWidth - pLeft - pRight).coerceAtLeast(fontSize))
-                        if (childStyle["height"] == null) {
-                            h = metrics.height
-                        }
-                    }
-                }
-                if (childStyle["height"] == null && childStyle["width"] != null) {
-                    val fontSize = GeometryParser.parseFontSize(childStyle["font-size"] ?: parentStyle["font-size"])
-                    if (fontSize != null) {
-                        h = fontSize * 1.2f
-                    }
-                }
-                inFlowList.add(child to ComputedBoxBounds(rawBounds.left, rawBounds.top, w, h))
+                val resolvedBounds = resolveInFlowChildSize(
+                    child = child,
+                    childStyle = childStyle,
+                    parentStyle = parentStyle,
+                    rawBounds = rawBounds,
+                    parentWidth = (parentWidth - pLeft - pRight).coerceAtLeast(1f),
+                    parentHeight = (parentHeight - pTop - pBottom).coerceAtLeast(1f)
+                )
+                inFlowList.add(child to resolvedBounds)
             }
         }
 
@@ -378,7 +382,7 @@ internal object FlexLayoutEngine {
                     result[child] = ComputedBoxBounds(finalLeft, finalTop, childW, childH)
                 }
 
-                currentCross += lineCrossSize + gap
+                currentCross += lineCrossSize + crossGap
             }
         }
 

@@ -80,8 +80,9 @@ object NxprcCompiler {
         // Scan for CSS properties the compiler cannot represent across the entire stylesheet and emit warnings
         scanUnsupportedCssProps(baseProps, stylesheet, warnings)
 
-        val rawButtonWidth = GeometryParser.parsePixelOrPercent(baseProps["width"], 100f, 100f)
-        val rawButtonHeight = GeometryParser.parsePixelOrPercent(baseProps["height"], 100f, 100f)
+        val defaultSize = GeometryConstants.DEFAULT_BUTTON_SIZE
+        val rawButtonWidth = GeometryParser.parsePixelOrPercent(baseProps["width"], defaultSize, defaultSize)
+        val rawButtonHeight = GeometryParser.parsePixelOrPercent(baseProps["height"], defaultSize, defaultSize)
         val buttonWidth = rawButtonWidth.coerceIn(NxprcDefaults.DEFAULT_MIN_SIZE_DP.toFloat(), NxprcDefaults.DEFAULT_MAX_SIZE_DP.toFloat())
         val buttonHeight = rawButtonHeight.coerceIn(NxprcDefaults.DEFAULT_MIN_SIZE_DP.toFloat(), NxprcDefaults.DEFAULT_MAX_SIZE_DP.toFloat())
         resolvedNodeBounds[primaryNode] = ComputedBoxBounds(0f, 0f, buttonWidth, buttonHeight)
@@ -384,14 +385,7 @@ object NxprcCompiler {
         }
 
         // 5. Recursive DOM Tree Compilation
-        DomTreeCompiler.compileDomChildren(
-            parentNode = primaryNode,
-            parentWidth = buttonWidth,
-            parentHeight = buttonHeight,
-            parentGlobalX = 0f,
-            parentGlobalY = 0f,
-            isParentClipping = baseProps["overflow"] == "hidden" || rootClip != null,
-            parentStackBase = LayerStack.CONTENT_BASE + LayerStack.CHILD_OFFSET,
+        val compilationContext = CompilationContext(
             buttonWidth = buttonWidth,
             buttonHeight = buttonHeight,
             baseProps = baseProps,
@@ -404,6 +398,16 @@ object NxprcCompiler {
             styleCache = styleCache,
             resolvedNodeBounds = resolvedNodeBounds,
             category = autoCategory
+        )
+        DomTreeCompiler.compileDomChildren(
+            parentNode = primaryNode,
+            parentWidth = buttonWidth,
+            parentHeight = buttonHeight,
+            parentGlobalX = 0f,
+            parentGlobalY = 0f,
+            isParentClipping = baseProps["overflow"] == "hidden" || rootClip != null,
+            parentStackBase = LayerStack.CONTENT_BASE + LayerStack.CHILD_OFFSET,
+            context = compilationContext
         )
 
         // 6. ::after: Top specular arc gloss & glass reflection edge
@@ -842,13 +846,34 @@ object NxprcCompiler {
         w: CompileWarningCollector
     ) {
         val droppedProps = mapOf(
-            "mix-blend-mode" to "mix-blend-mode is not supported by the NXPRC renderer. Layer will render without blending.",
-            "backdrop-filter" to "backdrop-filter is not supported. Use CSS filter: or SVG <filter> instead.",
-            "animation" to "CSS @keyframes animations are not supported. Use --spring-stiffness/--spring-damping for physics, or SVG animations.",
-            "transition" to "CSS transitions are not supported. The compiler uses spring physics for press interactions.",
-            "mask" to "CSS mask is not supported. Use clip-path: polygon() or border-radius for shape masking.",
-            "mask-image" to "CSS mask-image is not supported. Use clip-path: polygon() or border-radius.",
-            "perspective" to "CSS 3D perspective transforms are not supported. Use 2D transform only."
+            "mix-blend-mode" to Pair(
+                "mix-blend-mode is not supported by the NXPRC renderer. Layer will render without blending.",
+                "Remove mix-blend-mode or simulate blend mode via opacity and layered color stops"
+            ),
+            "backdrop-filter" to Pair(
+                "backdrop-filter is not supported. Use CSS filter: or SVG <filter> instead.",
+                "Use CSS filter: blur() on an underlying translucent element"
+            ),
+            "animation" to Pair(
+                "CSS @keyframes animations are not supported. Use --spring-stiffness/--spring-damping for physics, or SVG animations.",
+                "Express animation using supported transform/opacity keyframes or spring physics"
+            ),
+            "transition" to Pair(
+                "CSS transitions are not supported. The compiler uses spring physics for press interactions.",
+                "Remove CSS transitions; configure interactive tactile physics via --spring-stiffness and --spring-damping"
+            ),
+            "mask" to Pair(
+                "CSS mask is not supported. Use clip-path: polygon() or border-radius for shape masking.",
+                "Use clip-path: polygon() or SVG vector paths"
+            ),
+            "mask-image" to Pair(
+                "CSS mask-image is not supported. Use clip-path: polygon() or border-radius.",
+                "Use clip-path: polygon() or SVG vector paths"
+            ),
+            "perspective" to Pair(
+                "CSS 3D perspective transforms are not supported. Use 2D transform only.",
+                "Use standard 2D transforms (rotate, scale, skew, matrix)"
+            )
         )
 
         val seenDropped = mutableSetOf<String>()
@@ -858,15 +883,30 @@ object NxprcCompiler {
         }
 
         allDeclarations.forEach { declMap ->
-            droppedProps.forEach { (prop, msg) ->
+            droppedProps.forEach { (prop, info) ->
+                val (msg, fix) = info
                 if (declMap.containsKey(prop) && seenDropped.add(prop)) {
-                    w.dropped("UNSUPPORTED_CSS_PROPERTY", msg, prop)
+                    w.dropped(
+                        code = "UNSUPPORTED_CSS_PROPERTY",
+                        message = msg,
+                        source = prop,
+                        property = prop,
+                        originalValue = declMap[prop],
+                        suggestedFix = fix
+                    )
                 }
             }
 
             if (declMap.containsKey("grid") || declMap["display"]?.trim()?.equals("grid", ignoreCase = true) == true) {
                 if (seenDropped.add("grid")) {
-                    w.dropped("UNSUPPORTED_CSS_PROPERTY", "CSS Grid layout is not supported. Use position:absolute with explicit px coordinates.", "grid")
+                    w.dropped(
+                        code = "UNSUPPORTED_CSS_PROPERTY",
+                        message = "CSS Grid layout is not supported. Use position:absolute with explicit px coordinates.",
+                        source = "grid",
+                        property = "display",
+                        originalValue = declMap["display"] ?: "grid",
+                        suggestedFix = "Replace CSS Grid with position: absolute or Flexbox layout"
+                    )
                 }
             }
 
@@ -877,9 +917,12 @@ object NxprcCompiler {
             ) {
                 if (seenDropped.add("filter-multi-$filterVal")) {
                     w.warn(
-                        "FILTER_MULTI_FUNCTION",
-                        "Multiple CSS filter functions detected. Only the first supported function is compiled. Use SVG <filter> graphs for compound effects.",
-                        "filter: $filterVal"
+                        code = "FILTER_MULTI_FUNCTION",
+                        message = "Multiple CSS filter functions detected. Only the first supported function is compiled. Use SVG <filter> graphs for compound effects.",
+                        source = "filter: $filterVal",
+                        property = "filter",
+                        originalValue = filterVal,
+                        suggestedFix = "Split multiple filter functions across separate DOM layers or use an SVG filter graph"
                     )
                 }
             }
@@ -889,9 +932,12 @@ object NxprcCompiler {
             if (bg.contains("conic-gradient") && bg.count { it == ',' } > 8) {
                 if (seenDropped.add("conic-gradient-many")) {
                     w.info(
-                        "CONIC_GRADIENT_MANY_STOPS",
-                        "conic-gradient with many color stops may reduce rendering performance. Consider an SVG radialGradient paint server instead.",
-                        "background"
+                        code = "CONIC_GRADIENT_MANY_STOPS",
+                        message = "conic-gradient with many color stops may reduce rendering performance. Consider an SVG radialGradient paint server instead.",
+                        source = "background",
+                        property = "background",
+                        originalValue = bg,
+                        suggestedFix = "Use SVG radialGradient or reduce conic-gradient color stop count"
                     )
                 }
             }

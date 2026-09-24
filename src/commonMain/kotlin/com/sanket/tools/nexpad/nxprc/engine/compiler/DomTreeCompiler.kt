@@ -18,6 +18,26 @@ import com.sanket.tools.nexpad.nxprc.engine.parsers.*
  * Compiles nested DOM element trees, child pseudo-elements (`::before`, `::after`),
  * and secondary text leaf layers into ordered [CanvasLayer] instances.
  */
+/**
+ * Parameter object encapsulating shared compilation context, stylesheet, caches, and collectors
+ * passed through recursive DOM compilation. Eliminates parameter list code smells.
+ */
+internal data class CompilationContext(
+    val buttonWidth: Float,
+    val buttonHeight: Float,
+    val baseProps: Map<String, String>,
+    val stylesheet: CssStylesheet,
+    val layerCollector: LayerCollector,
+    val textNode: DomNode?,
+    val allTextNodes: List<DomNode>,
+    val surfaceSvgNode: DomNode? = null,
+    val svgFilters: Map<String, ParsedSvgFilter> = emptyMap(),
+    val styleCache: MutableMap<DomNode, com.sanket.tools.nexpad.nxprc.engine.css.ComputedElementStyle>? = null,
+    val resolvedNodeBounds: MutableMap<DomNode, ComputedBoxBounds>? = null,
+    val category: String = "BUTTON",
+    val capabilities: com.sanket.tools.nexpad.nxprc.EngineCapabilities = com.sanket.tools.nexpad.nxprc.EngineCapabilities.CURRENT
+)
+
 internal object DomTreeCompiler {
 
     /**
@@ -33,6 +53,40 @@ internal object DomTreeCompiler {
         return NodeRoleClassifier.classify(node, nxprcCategory) ==
                NodeRoleClassifier.NodeRole.THUMB_CAP
     }
+
+    /**
+     * Context-oriented compilation entry point using [CompilationContext].
+     */
+    internal fun compileDomChildren(
+        parentNode: DomNode,
+        parentWidth: Float,
+        parentHeight: Float,
+        parentGlobalX: Float,
+        parentGlobalY: Float,
+        isParentClipping: Boolean = false,
+        parentStackBase: Int = LayerStack.CONTENT_BASE + LayerStack.CHILD_OFFSET,
+        context: CompilationContext
+    ) = compileDomChildren(
+        parentNode = parentNode,
+        parentWidth = parentWidth,
+        parentHeight = parentHeight,
+        parentGlobalX = parentGlobalX,
+        parentGlobalY = parentGlobalY,
+        isParentClipping = isParentClipping,
+        parentStackBase = parentStackBase,
+        buttonWidth = context.buttonWidth,
+        buttonHeight = context.buttonHeight,
+        baseProps = context.baseProps,
+        stylesheet = context.stylesheet,
+        layerCollector = context.layerCollector,
+        textNode = context.textNode,
+        allTextNodes = context.allTextNodes,
+        surfaceSvgNode = context.surfaceSvgNode,
+        svgFilters = context.svgFilters,
+        styleCache = context.styleCache,
+        resolvedNodeBounds = context.resolvedNodeBounds,
+        category = context.category
+    )
 
     /**
      * Recursively traverses and compiles children of [parentNode] into canvas layers,

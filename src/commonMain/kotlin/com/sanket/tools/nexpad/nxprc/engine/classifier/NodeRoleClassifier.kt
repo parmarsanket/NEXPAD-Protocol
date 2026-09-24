@@ -46,9 +46,9 @@ object NodeRoleClassifier {
     // ── Keyword dictionaries ─────────────────────────────────────────────────
 
     private val THUMB_KEYWORDS = setOf(
-        "thumb", "cap", "dome", "knob", "grip", "core",
-        "stick-label", "sticker", "star", "emblem", "glyph",
-        "top", "nub", "ball", "puck"
+        "thumb", "cap", "dome", "knob", "grip",
+        "stick-label", "thumb-cap", "stick-cap", "thumbstick-cap",
+        "top", "nub", "puck"
     )
 
     private val BASE_KEYWORDS = setOf(
@@ -89,14 +89,20 @@ object NodeRoleClassifier {
         val visibility = props["visibility"]?.trim()?.lowercase()
         if (display == "none" || visibility == "hidden") return NodeRole.HIDDEN
 
-        // 1. Explicit data-attributes take highest precedence (data-layer-role, data-role, data-primitive)
+        // 1. Explicit data-attributes take highest precedence (data-layer-role, data-role, data-motion-group, data-primitive)
         val dataLayerRole = (node.attributes["data-layer-role"] ?: node.attributes["data-role"])?.trim()?.lowercase()
         when (dataLayerRole) {
             "background", "base", "socket" -> return NodeRole.BASE_SOCKET
             "surface", "artwork", "svg" -> return NodeRole.SURFACE_SVG
             "thumb", "cap" -> return NodeRole.THUMB_CAP
             "text", "label" -> return NodeRole.TEXT_LABEL
-            "detail", "decorative", "box" -> return NodeRole.BOX_PRIMITIVE
+            "detail", "decorative", "box", "emblem" -> return NodeRole.BOX_PRIMITIVE
+        }
+
+        val motionGroup = node.attributes["data-motion-group"]?.trim()?.lowercase()
+        when (motionGroup) {
+            "cap", "thumb" -> return NodeRole.THUMB_CAP
+            "base", "socket", "fixed" -> return NodeRole.BASE_SOCKET
         }
 
         val dataPrimitive = node.attributes["data-primitive"]?.lowercase()

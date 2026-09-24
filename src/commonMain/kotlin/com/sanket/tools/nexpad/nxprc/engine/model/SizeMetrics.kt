@@ -40,32 +40,29 @@ data class SizeMetrics(
     companion object {
         // ── Shape thresholds ────────────────────────────────────────────────
         /**
-         * A corner radius must be ≥ 45 % of the smaller button dimension to
-         * qualify the shape as an oval/circle. Replaces the former inline `0.35f`.
-         * 45 % is derived from the CSS spec: border-radius ≥ 50% = circle, but
-         * real-world designs often use values like 40–49 % — so we use 45 % as
-         * the conservative threshold.
+         * NXPRC heuristic threshold: corner radius ≥ 45% of min dimension is classified as oval/circle.
+         * Delegated to [com.sanket.tools.nexpad.nxprc.ShapeHeuristics.OVAL_RADIUS_RATIO].
          */
-        const val OVAL_RADIUS_RATIO: Float = 0.45f
+        const val OVAL_RADIUS_RATIO: Float = com.sanket.tools.nexpad.nxprc.ShapeHeuristics.OVAL_RADIUS_RATIO
 
         // ── Text ────────────────────────────────────────────────────────────
         /** Default font occupies 40 % of the button height (industry convention for gamepad labels). */
-        const val FONT_SIZE_RATIO: Float = 0.40f
+        const val FONT_SIZE_RATIO: Float = com.sanket.tools.nexpad.nxprc.TypographyDefaults.FONT_SIZE_RATIO
         /** Text is line-wrapped if it exceeds 90 % of the button width. */
-        const val TEXT_MAX_WIDTH_RATIO: Float = 0.90f
+        const val TEXT_MAX_WIDTH_RATIO: Float = com.sanket.tools.nexpad.nxprc.TypographyDefaults.TEXT_MAX_WIDTH_RATIO
 
         // ── Gloss reflection ────────────────────────────────────────────────
-        const val GLOSS_OFFSET_X_RATIO: Float = 0.14f
-        const val GLOSS_OFFSET_Y_RATIO: Float = 0.07f
-        const val GLOSS_WIDTH_RATIO:    Float = 0.55f
-        const val GLOSS_HEIGHT_RATIO:   Float = 0.32f
+        const val GLOSS_OFFSET_X_RATIO: Float = com.sanket.tools.nexpad.nxprc.GlossMetrics.GLOSS_OFFSET_X_RATIO
+        const val GLOSS_OFFSET_Y_RATIO: Float = com.sanket.tools.nexpad.nxprc.GlossMetrics.GLOSS_OFFSET_Y_RATIO
+        const val GLOSS_WIDTH_RATIO: Float = com.sanket.tools.nexpad.nxprc.GlossMetrics.GLOSS_WIDTH_RATIO
+        const val GLOSS_HEIGHT_RATIO: Float = com.sanket.tools.nexpad.nxprc.GlossMetrics.GLOSS_HEIGHT_RATIO
 
         // ── Shadow / stroke defaults (absolute dp values, not ratios) ───────
         /** Default inner-shadow stroke width. */
-        const val INNER_SHADOW_STROKE_DP: Float = 3.5f
+        const val INNER_SHADOW_STROKE_DP: Float = com.sanket.tools.nexpad.nxprc.VisualDesignTokens.INNER_SHADOW_STROKE_DP
         /** Default light-highlight alpha for inner shadows. */
-        const val INNER_SHADOW_LIGHT_COLOR: Long = 0x30FFFFFFL
+        const val INNER_SHADOW_LIGHT_COLOR: Long = com.sanket.tools.nexpad.nxprc.VisualDesignTokens.INNER_SHADOW_LIGHT_COLOR
         /** Default glow-ring blur when no explicit CSS blur is specified. */
-        const val DEFAULT_GLOW_BLUR_DP: Float = 14f
+        const val DEFAULT_GLOW_BLUR_DP: Float = com.sanket.tools.nexpad.nxprc.VisualDesignTokens.DEFAULT_GLOW_BLUR_DP
     }
 }

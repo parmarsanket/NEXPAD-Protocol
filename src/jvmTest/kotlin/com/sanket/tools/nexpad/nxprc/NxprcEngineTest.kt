@@ -1825,4 +1825,154 @@ LINE TWO</button>
         assertTrue(decoded.isSuccess)
         assertEquals(doc.manifest.id, decoded.getOrThrow().manifest.id)
     }
+
+    // ── Stage 7: OOP Engine Capabilities, AngleUnits, FlexGaps & Structured Diagnostics ──
+
+    @Test
+    fun testAngleUnitParsingAndAffineMatrixConversions() {
+        // Test AngleUnit direct parsing
+        assertEquals(90f, com.sanket.tools.nexpad.nxprc.engine.parsers.AngleUnit.parseToDegrees("90deg")!!, 0.001f)
+        assertEquals(180f, com.sanket.tools.nexpad.nxprc.engine.parsers.AngleUnit.parseToDegrees("0.5turn")!!, 0.001f)
+        assertEquals(360f, com.sanket.tools.nexpad.nxprc.engine.parsers.AngleUnit.parseToDegrees("1turn")!!, 0.001f)
+        val oneRadInDeg = (180.0 / kotlin.math.PI).toFloat()
+        assertEquals(oneRadInDeg, com.sanket.tools.nexpad.nxprc.engine.parsers.AngleUnit.parseToDegrees("1rad")!!, 0.001f)
+        assertEquals(45f, com.sanket.tools.nexpad.nxprc.engine.parsers.AngleUnit.parseToDegrees("45")!!, 0.001f)
+
+        // Test AffineMatrix2D.parseTransform with various units
+        val mDeg = com.sanket.tools.nexpad.nxprc.engine.parsers.AffineMatrix2D.parseTransform("rotate(90deg)")
+        assertEquals(0f, mDeg.a, 0.001f)
+        assertEquals(1f, mDeg.b, 0.001f)
+        assertEquals(-1f, mDeg.c, 0.001f)
+        assertEquals(0f, mDeg.d, 0.001f)
+
+        val mTurn = com.sanket.tools.nexpad.nxprc.engine.parsers.AffineMatrix2D.parseTransform("rotate(0.5turn)")
+        assertEquals(-1f, mTurn.a, 0.001f)
+        assertEquals(0f, mTurn.b, 0.001f)
+        assertEquals(0f, mTurn.c, 0.001f)
+        assertEquals(-1f, mTurn.d, 0.001f)
+
+        val mRad = com.sanket.tools.nexpad.nxprc.engine.parsers.AffineMatrix2D.parseTransform("rotate(3.14159265rad)")
+        assertEquals(-1f, mRad.a, 0.01f)
+        assertEquals(0f, mRad.b, 0.01f)
+    }
+
+    @Test
+    fun testFlexGapsParsingAndDirectionResolution() {
+        val gapsRow = com.sanket.tools.nexpad.nxprc.engine.compiler.FlexGaps(main = 10f, cross = 20f)
+        assertEquals(10f, gapsRow.main)
+        assertEquals(20f, gapsRow.cross)
+
+        // Compile HTML with independent row-gap and column-gap
+        val html = """
+            <style>
+              .flex-container {
+                width: 100px;
+                height: 100px;
+                display: flex;
+                flex-direction: column;
+                row-gap: 8px;
+                column-gap: 16px;
+              }
+              .item1 { width: 100px; height: 30px; }
+              .item2 { width: 100px; height: 30px; }
+            </style>
+            <button class="flex-container">
+              <div class="item1"></div>
+              <div class="item2"></div>
+            </button>
+        """.trimIndent()
+        val doc = NxprcPackager.compile(html, id = "rc.flex_gaps_test", name = "Flex Gaps Test")
+        assertNotNull(doc)
+        assertTrue(doc.canvas.layers.isNotEmpty())
+    }
+
+    @Test
+    fun testNodeRoleClassifierProtectsDecorativeArtworkFromCapMisclassification() {
+        // Star emblem should NOT be classified as THUMB_CAP
+        val starNode = com.sanket.tools.nexpad.nxprc.engine.dom.DomNode("div", classNames = listOf("star-emblem"))
+        val starRole = com.sanket.tools.nexpad.nxprc.engine.classifier.NodeRoleClassifier.classify(
+            starNode,
+            NxprcCategory.JOYSTICK
+        )
+        assertTrue(starRole != com.sanket.tools.nexpad.nxprc.engine.classifier.NodeRoleClassifier.NodeRole.THUMB_CAP,
+            "star-emblem should NOT be classified as THUMB_CAP")
+
+        // Glyph icon should NOT be classified as THUMB_CAP
+        val glyphNode = com.sanket.tools.nexpad.nxprc.engine.dom.DomNode("div", classNames = listOf("glyph-icon"))
+        val glyphRole = com.sanket.tools.nexpad.nxprc.engine.classifier.NodeRoleClassifier.classify(
+            glyphNode,
+            NxprcCategory.JOYSTICK
+        )
+        assertTrue(glyphRole != com.sanket.tools.nexpad.nxprc.engine.classifier.NodeRoleClassifier.NodeRole.THUMB_CAP,
+            "glyph-icon should NOT be classified as THUMB_CAP")
+
+        // Explicit data-motion-group="cap"
+        val capNode = com.sanket.tools.nexpad.nxprc.engine.dom.DomNode(
+            "div",
+            attributes = mapOf("data-motion-group" to "cap")
+        )
+        val capRole = com.sanket.tools.nexpad.nxprc.engine.classifier.NodeRoleClassifier.classify(
+            capNode,
+            NxprcCategory.JOYSTICK
+        )
+        assertEquals(com.sanket.tools.nexpad.nxprc.engine.classifier.NodeRoleClassifier.NodeRole.THUMB_CAP, capRole)
+
+        // Explicit data-motion-group="base"
+        val baseNode = com.sanket.tools.nexpad.nxprc.engine.dom.DomNode(
+            "div",
+            attributes = mapOf("data-motion-group" to "base")
+        )
+        val baseRole = com.sanket.tools.nexpad.nxprc.engine.classifier.NodeRoleClassifier.classify(
+            baseNode,
+            NxprcCategory.JOYSTICK
+        )
+        assertEquals(com.sanket.tools.nexpad.nxprc.engine.classifier.NodeRoleClassifier.NodeRole.BASE_SOCKET, baseRole)
+    }
+
+    @Test
+    fun testStructuredCompilerDiagnosticsEmission() {
+        val htmlWithUnsupported = """
+            <style>
+              .test-btn {
+                width: 96px;
+                height: 96px;
+                display: grid;
+                mix-blend-mode: multiply;
+                backdrop-filter: blur(10px);
+                transition: opacity 0.2s ease;
+              }
+            </style>
+            <button class="test-btn">A</button>
+        """.trimIndent()
+
+        val result = NxprcPackager.compileWithWarnings(htmlWithUnsupported, "rc.diag", "Diagnostics Test")
+        assertTrue(result.warnings.isNotEmpty(), "Compiler should emit diagnostics for unsupported properties")
+
+        val propertiesEmitted = result.warnings.mapNotNull { it.property }
+        assertTrue(propertiesEmitted.contains("display") || propertiesEmitted.contains("mix-blend-mode") || propertiesEmitted.contains("backdrop-filter"),
+            "Diagnostics must include structured property names: $propertiesEmitted")
+
+        val summary = result.structuredDiagnosticSummary()
+        assertTrue(summary.contains("SUGGESTION") || summary.contains("WARNING") || summary.contains("DROPPED"),
+            "Structured summary must provide actionable fixes: $summary")
+    }
+
+    @Test
+    fun testEngineCapabilitiesSingleSourceOfTruth() {
+        val caps = EngineCapabilities.CURRENT
+        assertFalse(caps.cssGrid)
+        assertFalse(caps.cssMask)
+        assertFalse(caps.cssBlendMode)
+        assertFalse(caps.cssBackdropFilter)
+        assertFalse(caps.cssTransitions)
+        assertTrue(caps.cssKeyframesTransformOpacity)
+        assertTrue(caps.flexRowColumn)
+        assertTrue(caps.flexWrap)
+        assertTrue(caps.flexGaps)
+        assertTrue(caps.calc)
+        assertTrue(caps.aspectRatio)
+        assertTrue(caps.svgTransforms)
+        assertFalse(caps.svgFilters)
+        assertTrue(caps.dataLayerRoles)
+    }
 }
