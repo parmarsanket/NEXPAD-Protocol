@@ -98,7 +98,8 @@ object GeometryParser {
         val explicitWidth = style["width"]?.let { parsePixelOrPercent(it, parentW, parentW) }
         val explicitHeight = style["height"]?.let { parsePixelOrPercent(it, parentH, parentH) }
 
-        val isBorderBox = style["box-sizing"]?.trim()?.lowercase() != "content-box"
+        val boxSizing = style["box-sizing"]?.trim()?.lowercase() ?: "content-box"
+        val isBorderBox = boxSizing == "border-box"
         val padTop = parsePixelOrPercent(style["padding-top"] ?: style["padding"], parentH, 0f)
         val padBottom = parsePixelOrPercent(style["padding-bottom"] ?: style["padding"], parentH, 0f)
         val padLeft = parsePixelOrPercent(style["padding-left"] ?: style["padding"], parentW, 0f)
@@ -125,8 +126,12 @@ object GeometryParser {
         }
 
         if (!isBorderBox) {
-            width += padLeft + padRight
-            height += padTop + padBottom
+            if (explicitWidth != null) {
+                width += padLeft + padRight
+            }
+            if (explicitHeight != null) {
+                height += padTop + padBottom
+            }
         }
 
         // Apply aspect-ratio if present and only one dimension is explicitly set

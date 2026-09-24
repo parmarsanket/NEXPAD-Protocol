@@ -25,16 +25,16 @@ sealed class ShapeDescriptor {
     data class RoundedRect(val radii: CornerRadii) : ShapeDescriptor()
 
     /** Regular polygon (equilateral). [sides] must be ≥ 3. */
-    data class Polygon(val sides: Int) : ShapeDescriptor()
+    data class Polygon(val sides: Int, val svgData: String = "") : ShapeDescriptor()
 
     /** Arbitrary SVG path (clip-path: path(...)). */
     data class Path(val svgData: String) : ShapeDescriptor()
 
     /** Regular hexagonal shape — shortcut for Polygon(6) with hex-specific rendering. */
-    data object Hexagon : ShapeDescriptor()
+    data class Hexagon(val svgData: String = "") : ShapeDescriptor()
 
     /** Regular octagonal shape — shortcut for Polygon(8) with oct-specific rendering. */
-    data object Octagon : ShapeDescriptor()
+    data class Octagon(val svgData: String = "") : ShapeDescriptor()
 
     // ── Adapters ─────────────────────────────────────────────────────────────
 
@@ -64,8 +64,11 @@ sealed class ShapeDescriptor {
     /** SVG path data — empty for non-path shapes. */
     val pathData: String
         get() = when (this) {
-            is Path -> svgData
-            else    -> ""
+            is Path    -> svgData
+            is Polygon -> svgData
+            is Hexagon -> svgData
+            is Octagon -> svgData
+            else       -> ""
         }
 
     /** Corner radii — zero for non-rounded-rect shapes. */
@@ -79,12 +82,12 @@ sealed class ShapeDescriptor {
         /** Construct from a parsed CSS clip-path result. */
         fun fromClip(clip: ParsedClipShape): ShapeDescriptor = when (clip.shapeType) {
             "OVAL"     -> Oval
-            "HEXAGON"  -> Hexagon
-            "OCTAGON"  -> Octagon
-            "POLYGON"  -> Polygon(clip.polygonSides)
+            "HEXAGON"  -> Hexagon(clip.pathData)
+            "OCTAGON"  -> Octagon(clip.pathData)
+            "POLYGON"  -> Polygon(clip.polygonSides, clip.pathData)
             "PATH"     -> Path(clip.pathData)
             else       -> when {
-                clip.polygonSides > 0 -> Polygon(clip.polygonSides)
+                clip.polygonSides > 0 -> Polygon(clip.polygonSides, clip.pathData)
                 clip.pathData.isNotEmpty() -> Path(clip.pathData)
                 else -> RoundedRect(CornerRadii())
             }

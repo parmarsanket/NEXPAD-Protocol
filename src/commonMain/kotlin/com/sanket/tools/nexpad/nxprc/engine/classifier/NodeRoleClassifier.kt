@@ -89,7 +89,16 @@ object NodeRoleClassifier {
         val visibility = props["visibility"]?.trim()?.lowercase()
         if (display == "none" || visibility == "hidden") return NodeRole.HIDDEN
 
-        // 1. Explicit data-attributes take highest precedence
+        // 1. Explicit data-attributes take highest precedence (data-layer-role, data-role, data-primitive)
+        val dataLayerRole = (node.attributes["data-layer-role"] ?: node.attributes["data-role"])?.trim()?.lowercase()
+        when (dataLayerRole) {
+            "background", "base", "socket" -> return NodeRole.BASE_SOCKET
+            "surface", "artwork", "svg" -> return NodeRole.SURFACE_SVG
+            "thumb", "cap" -> return NodeRole.THUMB_CAP
+            "text", "label" -> return NodeRole.TEXT_LABEL
+            "detail", "decorative", "box" -> return NodeRole.BOX_PRIMITIVE
+        }
+
         val dataPrimitive = node.attributes["data-primitive"]?.lowercase()
         if (dataPrimitive == "box") return NodeRole.BOX_PRIMITIVE
         if (dataPrimitive == "thumb" || dataPrimitive == "cap") return NodeRole.THUMB_CAP

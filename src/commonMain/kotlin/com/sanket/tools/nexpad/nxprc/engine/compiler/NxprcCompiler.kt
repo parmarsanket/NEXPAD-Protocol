@@ -77,11 +77,13 @@ object NxprcCompiler {
         val beforeStyle = style.before
         val afterStyle = style.after
 
-        // Scan for CSS properties the compiler cannot represent and emit warnings
-        scanUnsupportedCssProps(baseProps, warnings)
+        // Scan for CSS properties the compiler cannot represent across the entire stylesheet and emit warnings
+        scanUnsupportedCssProps(baseProps, stylesheet, warnings)
 
-        val buttonWidth = GeometryParser.parsePixelOrPercent(baseProps["width"], 100f, 100f).coerceAtLeast(1f)
-        val buttonHeight = GeometryParser.parsePixelOrPercent(baseProps["height"], 100f, 100f).coerceAtLeast(1f)
+        val rawButtonWidth = GeometryParser.parsePixelOrPercent(baseProps["width"], 100f, 100f)
+        val rawButtonHeight = GeometryParser.parsePixelOrPercent(baseProps["height"], 100f, 100f)
+        val buttonWidth = rawButtonWidth.coerceIn(NxprcDefaults.DEFAULT_MIN_SIZE_DP.toFloat(), NxprcDefaults.DEFAULT_MAX_SIZE_DP.toFloat())
+        val buttonHeight = rawButtonHeight.coerceIn(NxprcDefaults.DEFAULT_MIN_SIZE_DP.toFloat(), NxprcDefaults.DEFAULT_MAX_SIZE_DP.toFloat())
         resolvedNodeBounds[primaryNode] = ComputedBoxBounds(0f, 0f, buttonWidth, buttonHeight)
         val baseOpacity = baseProps["opacity"]?.toFloatOrNull() ?: 1.0f
         val baseFilter = FilterParser.parse(baseProps["filter"] ?: primaryNode.attributes["filter"], svgFilters)
@@ -799,8 +801,8 @@ object NxprcCompiler {
                 name = resolvedName,
                 category = autoCategory.uppercase(),
                 defaultControl = autoControl.uppercase(),
-                widthDp = buttonWidth.toInt().coerceIn(NxprcDefaults.DEFAULT_MIN_SIZE_DP, NxprcDefaults.DEFAULT_MAX_SIZE_DP),
-                heightDp = buttonHeight.toInt().coerceIn(NxprcDefaults.DEFAULT_MIN_SIZE_DP, NxprcDefaults.DEFAULT_MAX_SIZE_DP),
+                widthDp = buttonWidth.toInt(),
+                heightDp = buttonHeight.toInt(),
                 description = "Compiled from HTML/CSS/SVG DOM Engine",
                 springPhysics = springPhysics
             ),
@@ -834,7 +836,11 @@ object NxprcCompiler {
      * Scans computed CSS properties for values the NXPRC engine cannot represent.
      * Emits DROPPED warnings for each unsupported property and warnings for lossy conversions.
      */
-    private fun scanUnsupportedCssProps(props: Map<String, String>, w: CompileWarningCollector) {
+    private fun scanUnsupportedCssProps(
+        props: Map<String, String>,
+        stylesheet: com.sanket.tools.nexpad.nxprc.engine.css.CssStylesheet,
+        w: CompileWarningCollector
+    ) {
         val droppedProps = mapOf(
             "mix-blend-mode" to "mix-blend-mode is not supported by the NXPRC renderer. Layer will render without blending.",
             "backdrop-filter" to "backdrop-filter is not supported. Use CSS filter: or SVG <filter> instead.",
@@ -844,34 +850,51 @@ object NxprcCompiler {
             "mask-image" to "CSS mask-image is not supported. Use clip-path: polygon() or border-radius.",
             "perspective" to "CSS 3D perspective transforms are not supported. Use 2D transform only."
         )
-        droppedProps.forEach { (prop, msg) ->
-            if (props.containsKey(prop)) w.dropped("UNSUPPORTED_CSS_PROPERTY", msg, prop)
+
+        val seenDropped = mutableSetOf<String>()
+        val allDeclarations = buildList {
+            add(props)
+            stylesheet.rules.forEach { add(it.declarations) }
         }
 
-        if (props.containsKey("grid") || props["display"]?.trim()?.equals("grid", ignoreCase = true) == true) {
-            w.dropped("UNSUPPORTED_CSS_PROPERTY", "CSS Grid layout is not supported. Use position:absolute with explicit px coordinates.", "grid")
-        }
+        allDeclarations.forEach { declMap ->
+            droppedProps.forEach { (prop, msg) ->
+                if (declMap.containsKey(prop) && seenDropped.add(prop)) {
+                    w.dropped("UNSUPPORTED_CSS_PROPERTY", msg, prop)
+                }
+            }
 
-        // Warn on multi-function filter (only first function is parsed)
-        val filterVal = props["filter"]
-        if (filterVal != null && filterVal.contains(")") &&
-            filterVal.indexOf(")") < filterVal.lastIndexOf("(")
-        ) {
-            w.warn(
-                "FILTER_MULTI_FUNCTION",
-                "Multiple CSS filter functions detected. Only the first supported function is compiled. Use SVG <filter> graphs for compound effects.",
-                "filter: $filterVal"
-            )
-        }
+            if (declMap.containsKey("grid") || declMap["display"]?.trim()?.equals("grid", ignoreCase = true) == true) {
+                if (seenDropped.add("grid")) {
+                    w.dropped("UNSUPPORTED_CSS_PROPERTY", "CSS Grid layout is not supported. Use position:absolute with explicit px coordinates.", "grid")
+                }
+            }
 
-        // Info on conic-gradient with many stops
-        val bg = props["background"] ?: props["background-image"] ?: ""
-        if (bg.contains("conic-gradient") && bg.count { it == ',' } > 8) {
-            w.info(
-                "CONIC_GRADIENT_MANY_STOPS",
-                "conic-gradient with many color stops may reduce rendering performance. Consider an SVG radialGradient paint server instead.",
-                "background"
-            )
+            // Warn on multi-function filter (only first function is parsed)
+            val filterVal = declMap["filter"]
+            if (filterVal != null && filterVal.contains(")") &&
+                filterVal.indexOf(")") < filterVal.lastIndexOf("(")
+            ) {
+                if (seenDropped.add("filter-multi-$filterVal")) {
+                    w.warn(
+                        "FILTER_MULTI_FUNCTION",
+                        "Multiple CSS filter functions detected. Only the first supported function is compiled. Use SVG <filter> graphs for compound effects.",
+                        "filter: $filterVal"
+                    )
+                }
+            }
+
+            // Info on conic-gradient with many stops
+            val bg = declMap["background"] ?: declMap["background-image"] ?: ""
+            if (bg.contains("conic-gradient") && bg.count { it == ',' } > 8) {
+                if (seenDropped.add("conic-gradient-many")) {
+                    w.info(
+                        "CONIC_GRADIENT_MANY_STOPS",
+                        "conic-gradient with many color stops may reduce rendering performance. Consider an SVG radialGradient paint server instead.",
+                        "background"
+                    )
+                }
+            }
         }
     }
 }
