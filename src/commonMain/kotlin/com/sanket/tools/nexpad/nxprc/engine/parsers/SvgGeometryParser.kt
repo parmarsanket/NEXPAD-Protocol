@@ -268,7 +268,7 @@ object SvgGeometryParser {
             val tag = curr.tag.lowercase()
             if (tag !in listOf("path", "circle", "rect", "line", "polyline", "polygon", "ellipse", "g", "svg", "text", "tspan", "defs")) break
             val computed = if (stylesheet != null) CssCascadeResolver.computeStyle(curr, stylesheet).base else emptyMap()
-            val v = curr.attributes[attr] ?: curr.inlineStyles[attr] ?: computed[attr]
+            val v = curr.inlineStyles[attr] ?: computed[attr] ?: curr.attributes[attr]
             if (!v.isNullOrBlank()) return v
             curr = curr.parent
         }

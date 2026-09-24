@@ -652,4 +652,422 @@ class NxprcTenVariationsStressTest {
 
         assertTrue(tailPaths[0].contains("M 50 50"), "Tail 0 must start at (50, 50)")
     }
+
+    @Test
+    fun testUserAnimeAButton() {
+        val html = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+  :root {
+    --spring-damping: 0.68;
+    --spring-stiffness: 440;
+    --press-scale: 0.92;
+  }
+
+  .nexpad-btn {
+    width: 96px;
+    height: 96px;
+    position: relative;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    overflow: hidden;
+    isolation: isolate;
+    cursor: pointer;
+
+    background:
+      radial-gradient(
+        ellipse at 30% 18%,
+        rgba(255,255,255,0.72) 0%,
+        rgba(255,255,255,0.14) 22%,
+        transparent 42%
+      ),
+      radial-gradient(
+        circle at 74% 80%,
+        rgba(0,20,40,0.56) 0%,
+        transparent 58%
+      ),
+      linear-gradient(
+        145deg,
+        #7c3aed 0%,
+        #a855f7 25%,
+        #ec4899 52%,
+        #db2777 76%,
+        #831843 100%
+      );
+
+    box-shadow:
+      0 8px 18px rgba(0,0,0,0.62),
+      0 0 0 3px rgba(20,12,30,0.92),
+      0 0 0 5px rgba(236,72,153,0.24),
+      0 0 22px rgba(236,72,153,0.38),
+      inset 0 2px 4px rgba(255,255,255,0.50),
+      inset 0 -7px 13px rgba(25,4,25,0.68);
+
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .nexpad-btn::before {
+    content: "";
+    position: absolute;
+    left: 7px;
+    top: 7px;
+    width: calc(100% - 14px);
+    height: calc(100% - 14px);
+    border-radius: 50%;
+    z-index: 1;
+
+    background:
+      conic-gradient(
+        from 215deg,
+        rgba(255,255,255,0.12),
+        rgba(255,255,255,0.54) 14%,
+        rgba(255,255,255,0.06) 25%,
+        rgba(0,0,0,0.22) 52%,
+        rgba(255,255,255,0.10) 78%,
+        rgba(255,255,255,0.34) 92%,
+        rgba(255,255,255,0.12)
+      );
+
+    box-shadow:
+      inset 0 1px 2px rgba(255,255,255,0.52),
+      inset 0 -3px 7px rgba(43,5,35,0.50);
+  }
+
+  .nexpad-btn::after {
+    content: "";
+    position: absolute;
+    left: 14px;
+    top: 10px;
+    width: 68px;
+    height: 34px;
+    border-radius: 50%;
+    z-index: 6;
+    pointer-events: none;
+
+    background:
+      radial-gradient(
+        ellipse at 50% 50%,
+        rgba(255,255,255,0.72) 0%,
+        rgba(255,255,255,0.22) 34%,
+        transparent 72%
+      );
+
+    opacity: 0.58;
+    transform: rotate(-12deg);
+  }
+
+  .anime-core {
+    position: absolute;
+    left: 12px;
+    top: 12px;
+    width: calc(100% - 24px);
+    height: calc(100% - 24px);
+    border-radius: 50%;
+    z-index: 2;
+
+    background:
+      radial-gradient(
+        circle at 35% 28%,
+        rgba(255,255,255,0.22) 0%,
+        transparent 25%
+      ),
+      radial-gradient(
+        circle at 54% 58%,
+        rgba(255,138,204,0.20) 0%,
+        transparent 48%
+      ),
+      linear-gradient(
+        145deg,
+        rgba(255,255,255,0.16),
+        rgba(255,255,255,0.03) 45%,
+        rgba(45,0,35,0.22) 100%
+      );
+
+    box-shadow:
+      inset 0 1px 2px rgba(255,255,255,0.32),
+      inset 0 -5px 8px rgba(28,0,22,0.40);
+  }
+
+  .anime-aura {
+    position: absolute;
+    left: 18px;
+    top: 18px;
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    z-index: 2;
+    background: rgba(255,105,180,0.55);
+    filter: blur(7px);
+    opacity: 0.72;
+  }
+
+  .btn-emblem {
+    width: 62px;
+    height: 62px;
+    position: absolute;
+    left: 17px;
+    top: 17px;
+    z-index: 4;
+    pointer-events: none;
+    overflow: visible;
+  }
+
+  .btn-emblem .petal {
+    fill: #ffd6ee;
+    stroke: #fff3fa;
+    stroke-width: 1.3;
+  }
+
+  .btn-emblem .petal-shadow {
+    fill: #f472b6;
+    opacity: 0.56;
+  }
+
+  .btn-emblem .energy-ring {
+    fill: none;
+    stroke: #ffe4f3;
+    stroke-width: 2.1;
+    opacity: 0.88;
+  }
+
+  .btn-emblem .energy-ring-inner {
+    fill: none;
+    stroke: #ffffff;
+    stroke-width: 1;
+    opacity: 0.60;
+  }
+
+  .btn-emblem .spark {
+    fill: #fff7fc;
+    opacity: 0.96;
+  }
+
+  .btn-emblem .slash {
+    fill: none;
+    stroke: #ffffff;
+    stroke-width: 2.2;
+    stroke-linecap: round;
+    opacity: 0.82;
+  }
+
+  .btn-label {
+    position: absolute;
+    left: 0;
+    top: 22px;
+    width: 96px;
+    height: 52px;
+    z-index: 5;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    color: #fff9fd;
+    font-family:
+      -apple-system,
+      BlinkMacSystemFont,
+      "Segoe UI",
+      Roboto,
+      sans-serif;
+
+    font-size: 36px;
+    font-weight: 900;
+    line-height: 1;
+    letter-spacing: -1px;
+    white-space: pre-line;
+    text-align: center;
+
+    text-shadow:
+      0 1px 0 rgba(255,255,255,0.92),
+      0 -1px 0 rgba(82,8,49,0.95),
+      1px 2px 0 rgba(109,16,72,0.95),
+      0 4px 7px rgba(37,0,24,0.82),
+      0 0 10px rgba(255,166,218,0.68);
+  }
+
+  .anime-mark {
+    position: absolute;
+    left: 27px;
+    top: 7px;
+    width: 42px;
+    height: 7px;
+    z-index: 5;
+    border-radius: 50%;
+    background:
+      linear-gradient(
+        90deg,
+        transparent 0%,
+        rgba(255,255,255,0.22) 18%,
+        rgba(255,255,255,0.72) 50%,
+        rgba(255,255,255,0.18) 82%,
+        transparent 100%
+      );
+    transform: rotate(-8deg);
+    opacity: 0.76;
+  }
+
+  .nexpad-btn:active {
+    transform: scale(0.93) translateY(3px);
+  }
+</style>
+</head>
+
+<body>
+  <button
+    class="nexpad-btn"
+    data-control="A"
+    data-category="BUTTON"
+    data-name="Anime A"
+  >
+    <span class="anime-core"></span>
+    <span class="anime-aura"></span>
+
+    <svg
+      class="btn-emblem"
+      viewBox="0 0 100 100"
+      aria-hidden="true"
+    >
+      <defs>
+        <radialGradient id="petalGlow" cx="50%" cy="45%" r="60%">
+          <stop offset="0%" stop-color="#fff7fc"/>
+          <stop offset="42%" stop-color="#fbcfe8"/>
+          <stop offset="100%" stop-color="#ec4899"/>
+        </radialGradient>
+
+        <linearGradient id="ringGlow" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="#ffffff"/>
+          <stop offset="50%" stop-color="#f9a8d4"/>
+          <stop offset="100%" stop-color="#ffffff"/>
+        </linearGradient>
+      </defs>
+
+      <!-- Anime energy halo -->
+      <circle
+        class="energy-ring"
+        cx="50"
+        cy="50"
+        r="39"
+        stroke="url(#ringGlow)"
+      />
+
+      <circle
+        class="energy-ring-inner"
+        cx="50"
+        cy="50"
+        r="33"
+      />
+
+      <!-- Sakura-style petals -->
+      <g transform="translate(50 50)">
+        <g transform="rotate(0)">
+          <path
+            class="petal-shadow"
+            d="M0,-7 C-15,-15 -22,-2 -12,8 C-6,14 2,12 5,4 Z"
+            transform="translate(2 2)"
+          />
+          <path
+            class="petal"
+            fill="url(#petalGlow)"
+            d="M0,-7 C-15,-15 -22,-2 -12,8 C-6,14 2,12 5,4 Z"
+          />
+        </g>
+
+        <g transform="rotate(72)">
+          <path
+            class="petal"
+            fill="url(#petalGlow)"
+            d="M0,-7 C-15,-15 -22,-2 -12,8 C-6,14 2,12 5,4 Z"
+          />
+        </g>
+
+        <g transform="rotate(144)">
+          <path
+            class="petal"
+            fill="url(#petalGlow)"
+            d="M0,-7 C-15,-15 -22,-2 -12,8 C-6,14 2,12 5,4 Z"
+          />
+        </g>
+
+        <g transform="rotate(216)">
+          <path
+            class="petal"
+            fill="url(#petalGlow)"
+            d="M0,-7 C-15,-15 -22,-2 -12,8 C-6,14 2,12 5,4 Z"
+          />
+        </g>
+
+        <g transform="rotate(288)">
+          <path
+            class="petal"
+            fill="url(#petalGlow)"
+            d="M0,-7 C-15,-15 -22,-2 -12,8 C-6,14 2,12 5,4 Z"
+          />
+        </g>
+      </g>
+
+      <!-- Anime action slash -->
+      <path
+        class="slash"
+        d="M26 76 C37 64, 54 54, 74 28"
+      />
+
+      <path
+        class="slash"
+        d="M31 80 C42 70, 56 61, 69 43"
+        opacity="0.42"
+      />
+
+      <!-- Spark accents -->
+      <path
+        class="spark"
+        d="M18 25 L20 30 L25 32 L20 34 L18 40 L16 34 L11 32 L16 30 Z"
+      />
+
+      <path
+        class="spark"
+        d="M79 68 L81 72 L85 74 L81 76 L79 81 L77 76 L73 74 L77 72 Z"
+      />
+
+      <circle class="spark" cx="77" cy="20" r="2.2"/>
+      <circle class="spark" cx="23" cy="69" r="1.8"/>
+    </svg>
+
+    <span class="anime-mark"></span>
+    <span class="btn-label">A</span>
+  </button>
+</body>
+</html>
+        """.trimIndent()
+
+        val result = NxprcPackager.compileWithWarnings(html, "rc.anime_a", "Anime A", "BUTTON", "A")
+        assertNotNull(result.document)
+        println("=== USER ANIME LAYERS (${result.document.canvas.layers.size}) ===")
+        result.document.canvas.layers.forEachIndexed { i, l ->
+            when (l) {
+                is CanvasLayer.VectorPath -> {
+                    val fillStr = when (val f = l.fill) {
+                        is FillBrush.Solid -> "Solid(0x%08X)".format(f.color)
+                        is FillBrush.RadialGradient -> "Radial(colors=${f.colors.map { "0x%08X".format(it) }}, r=${f.radiusRatio})"
+                        is FillBrush.LinearGradient -> "Linear(colors=${f.colors.map { "0x%08X".format(it) }})"
+                        else -> f::class.simpleName
+                    }
+                    val strokeStr = l.stroke?.let { "stroke(0x%08X, w=${it.width})" } ?: "no-stroke"
+                    println("  #$i VectorPath fill=$fillStr stroke=$strokeStr off=(${l.offsetXRatio}, ${l.offsetYRatio}) scale=${l.scale} d='${l.pathData.take(50)}...'")
+                }
+                is CanvasLayer.BoxLayer -> println("  #$i BoxLayer shape=${l.shapeType} w=${l.widthRatio} h=${l.heightRatio} x=${l.offsetXRatio} y=${l.offsetYRatio} opacity=${l.effectiveEffects.opacity}")
+                is CanvasLayer.GradientShape -> println("  #$i GradientShape shape=${l.shapeType} fill=${l.fill::class.simpleName}")
+                is CanvasLayer.CenterGlyph -> println("  #$i CenterGlyph text=${l.text} color=0x%08X shadows=${l.textShadows.size}".format(l.textColor))
+                is CanvasLayer.TextLayer -> println("  #$i TextLayer text=${l.text}")
+                else -> println("  #$i ${l::class.simpleName}")
+            }
+        }
+    }
 }

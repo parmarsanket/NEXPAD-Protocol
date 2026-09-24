@@ -1,7 +1,11 @@
 package com.sanket.tools.nexpad.nxprc.engine.compiler
 
+import com.sanket.tools.nexpad.nxprc.engine.css.AlignItems
 import com.sanket.tools.nexpad.nxprc.engine.css.CssCascadeResolver
 import com.sanket.tools.nexpad.nxprc.engine.css.CssStylesheet
+import com.sanket.tools.nexpad.nxprc.engine.css.DisplayValue
+import com.sanket.tools.nexpad.nxprc.engine.css.FlexDirection
+import com.sanket.tools.nexpad.nxprc.engine.css.JustifyContent
 import com.sanket.tools.nexpad.nxprc.engine.dom.DomNode
 import com.sanket.tools.nexpad.nxprc.engine.parsers.ComputedBoxBounds
 import com.sanket.tools.nexpad.nxprc.engine.parsers.GeometryParser
@@ -30,7 +34,7 @@ internal object FlexLayoutEngine {
         parentWidth: Float,
         parentHeight: Float
     ): ComputedBoxBounds {
-        if (parentStyle["display"]?.trim()?.lowercase() != "flex") return rawBounds
+        if (DisplayValue.parse(parentStyle["display"]) != DisplayValue.FLEX) return rawBounds
 
         val constraints = GeometryParser.extractPositionConstraints(childStyle, parentWidth, parentHeight)
 
@@ -41,13 +45,13 @@ internal object FlexLayoutEngine {
         val pLeft = GeometryParser.parsePixelOrPercent(parentStyle["padding-left"], parentWidth, pad?.left ?: 0f)
         val pRight = GeometryParser.parsePixelOrPercent(parentStyle["padding-right"], parentWidth, pad?.right ?: 0f)
 
-        // Flex orientation & alignment
-        val direction = parentStyle["flex-direction"]?.trim()?.lowercase() ?: "row"
-        val isColumn = direction == "column" || direction == "column-reverse"
-        val isReverse = direction == "row-reverse" || direction == "column-reverse"
-        val justify = parentStyle["justify-content"]?.trim()?.lowercase() ?: "flex-start"
-        val align = childStyle["align-self"]?.trim()?.lowercase()?.takeIf { it.isNotBlank() && it != "auto" }
-            ?: parentStyle["align-items"]?.trim()?.lowercase() ?: "stretch"
+        // ── Typed flex orientation & alignment (replaces raw "center", "column" strings) ──────────
+        val direction = FlexDirection.parse(parentStyle["flex-direction"])
+        val isColumn  = direction.isColumn
+        val isReverse = direction.isReverse
+        val justify   = JustifyContent.parse(parentStyle["justify-content"])
+        val align     = AlignItems.parseSelf(childStyle["align-self"])
+            ?: AlignItems.parse(parentStyle["align-items"])
 
         val availMain = if (isColumn) {
             (parentHeight - pTop - pBottom - rawBounds.height).coerceAtLeast(0f)
@@ -64,23 +68,23 @@ internal object FlexLayoutEngine {
         val startMain = if (isColumn) pTop else pLeft
         val staticMain = if (!isReverse) {
             when (justify) {
-                "center", "space-around", "space-evenly" -> startMain + availMain / 2f
-                "flex-end" -> startMain + availMain
-                else -> startMain // flex-start, space-between (1 item sits at start)
+                JustifyContent.CENTER, JustifyContent.SPACE_AROUND, JustifyContent.SPACE_EVENLY -> startMain + availMain / 2f
+                JustifyContent.FLEX_END, JustifyContent.END -> startMain + availMain
+                else -> startMain // FLEX_START, SPACE_BETWEEN (1 item sits at start)
             }
         } else {
             when (justify) {
-                "center", "space-around", "space-evenly" -> startMain + availMain / 2f
-                "flex-start", "space-between" -> startMain + availMain
-                else -> startMain // flex-end in reverse is at start
+                JustifyContent.CENTER, JustifyContent.SPACE_AROUND, JustifyContent.SPACE_EVENLY -> startMain + availMain / 2f
+                JustifyContent.FLEX_START, JustifyContent.START, JustifyContent.SPACE_BETWEEN  -> startMain + availMain
+                else -> startMain // FLEX_END in reverse is at start
             }
         }
 
         val startCross = if (isColumn) pLeft else pTop
         val staticCross = when (align) {
-            "center" -> startCross + availCross / 2f
-            "flex-end" -> startCross + availCross
-            else -> startCross // flex-start, stretch, baseline
+            AlignItems.CENTER           -> startCross + availCross / 2f
+            AlignItems.FLEX_END, AlignItems.END -> startCross + availCross
+            else -> startCross // FLEX_START, STRETCH, BASELINE
         }
 
         val staticLeft = if (isColumn) staticCross else staticMain
@@ -165,7 +169,7 @@ internal object FlexLayoutEngine {
     ): Map<DomNode, ComputedBoxBounds> {
         val result = mutableMapOf<DomNode, ComputedBoxBounds>()
         val children = parentNode.children
-        if (parentStyle["display"]?.trim()?.lowercase() != "flex") {
+        if (DisplayValue.parse(parentStyle["display"]) != DisplayValue.FLEX) {
             for (child in children) {
                 val childStyle = CssCascadeResolver.computeStyle(child, stylesheet, styleCache).base
                 result[child] = GeometryParser.computeBoxBounds(childStyle, parentWidth, parentHeight)
@@ -173,11 +177,12 @@ internal object FlexLayoutEngine {
             return result
         }
 
-        val direction = parentStyle["flex-direction"]?.trim()?.lowercase() ?: "row"
-        val isColumn = direction == "column" || direction == "column-reverse"
-        val isReverse = direction == "row-reverse" || direction == "column-reverse"
-        val justify = parentStyle["justify-content"]?.trim()?.lowercase() ?: "flex-start"
-        val align = parentStyle["align-items"]?.trim()?.lowercase() ?: "stretch"
+        // ── Typed flex properties (replaces raw string comparisons) ────────────────────────────────
+        val direction    = FlexDirection.parse(parentStyle["flex-direction"])
+        val isColumn     = direction.isColumn
+        val isReverse    = direction.isReverse
+        val justify      = JustifyContent.parse(parentStyle["justify-content"])
+        val align        = AlignItems.parse(parentStyle["align-items"])
 
         val pad = GeometryParser.parseInset(parentStyle["padding"], parentWidth, parentHeight)
         val pTop = GeometryParser.parsePixelOrPercent(parentStyle["padding-top"], parentHeight, pad?.top ?: 0f)
@@ -243,18 +248,18 @@ internal object FlexLayoutEngine {
             }
 
             var currentMain = when (justify) {
-                "center" -> (if (isColumn) pTop else pLeft) + availMain / 2f
-                "flex-end" -> (if (isColumn) parentHeight - pBottom - totalMain else parentWidth - pRight - totalMain)
-                "space-around" -> (if (isColumn) pTop else pLeft) + (availMain / (orderedList.size * 2f))
-                "space-evenly" -> (if (isColumn) pTop else pLeft) + (availMain / (orderedList.size + 1f))
-                else -> if (isColumn) pTop else pLeft
+                JustifyContent.CENTER                         -> (if (isColumn) pTop else pLeft) + availMain / 2f
+                JustifyContent.FLEX_END, JustifyContent.END  -> (if (isColumn) parentHeight - pBottom - totalMain else parentWidth - pRight - totalMain)
+                JustifyContent.SPACE_AROUND                  -> (if (isColumn) pTop else pLeft) + (availMain / (orderedList.size * 2f))
+                JustifyContent.SPACE_EVENLY                  -> (if (isColumn) pTop else pLeft) + (availMain / (orderedList.size + 1f))
+                else                                         -> if (isColumn) pTop else pLeft
             }
 
             val extraSpacing = when (justify) {
-                "space-between" -> if (orderedList.size > 1) availMain / (orderedList.size - 1) else 0f
-                "space-around" -> availMain / orderedList.size
-                "space-evenly" -> availMain / (orderedList.size + 1f)
-                else -> 0f
+                JustifyContent.SPACE_BETWEEN -> if (orderedList.size > 1) availMain / (orderedList.size - 1) else 0f
+                JustifyContent.SPACE_AROUND  -> availMain / orderedList.size
+                JustifyContent.SPACE_EVENLY  -> availMain / (orderedList.size + 1f)
+                else                         -> 0f
             }
 
             for ((child, bounds) in orderedList) {
@@ -264,20 +269,20 @@ internal object FlexLayoutEngine {
                 val (cLeft, cTop) = if (isColumn) {
                     val top = currentMain
                     val left = when (align) {
-                        "center" -> pLeft + (parentWidth - pLeft - pRight - childW).coerceAtLeast(0f) / 2f
-                        "flex-end" -> parentWidth - pRight - childW
-                        else -> pLeft
+                        AlignItems.CENTER           -> pLeft + (parentWidth - pLeft - pRight - childW).coerceAtLeast(0f) / 2f
+                        AlignItems.FLEX_END, AlignItems.END -> parentWidth - pRight - childW
+                        else                        -> pLeft
                     }
-                    currentMain += childH + (if (justify.startsWith("space-")) extraSpacing else gap)
+                    currentMain += childH + (if (justify.isSpaced) extraSpacing else gap)
                     left to top
                 } else {
                     val left = currentMain
                     val top = when (align) {
-                        "center" -> pTop + (parentHeight - pTop - pBottom - childH).coerceAtLeast(0f) / 2f
-                        "flex-end" -> parentHeight - pBottom - childH
-                        else -> pTop
+                        AlignItems.CENTER           -> pTop + (parentHeight - pTop - pBottom - childH).coerceAtLeast(0f) / 2f
+                        AlignItems.FLEX_END, AlignItems.END -> parentHeight - pBottom - childH
+                        else                        -> pTop
                     }
-                    currentMain += childW + (if (justify.startsWith("space-")) extraSpacing else gap)
+                    currentMain += childW + (if (justify.isSpaced) extraSpacing else gap)
                     left to top
                 }
 
@@ -318,9 +323,9 @@ internal object FlexLayoutEngine {
             }
 
             var currentCross = when (alignContent) {
-                "center" -> (if (isColumn) pLeft else pTop) + availCross / 2f
+                "center"   -> (if (isColumn) pLeft else pTop) + availCross / 2f
                 "flex-end" -> (if (isColumn) parentWidth - pRight - totalCross else parentHeight - pBottom - totalCross)
-                else -> if (isColumn) pLeft else pTop
+                else       -> if (isColumn) pLeft else pTop
             }
 
             for (line in finalLines) {
@@ -330,18 +335,18 @@ internal object FlexLayoutEngine {
                 val lineAvailMain = (maxMainSize - lineTotalMain).coerceAtLeast(0f)
 
                 var currentMain = when (justify) {
-                    "center" -> (if (isColumn) pTop else pLeft) + lineAvailMain / 2f
-                    "flex-end" -> (if (isColumn) parentHeight - pBottom - lineTotalMain else parentWidth - pRight - lineTotalMain)
-                    "space-around" -> (if (isColumn) pTop else pLeft) + (lineAvailMain / (line.size * 2f))
-                    "space-evenly" -> (if (isColumn) pTop else pLeft) + (lineAvailMain / (line.size + 1f))
-                    else -> if (isColumn) pTop else pLeft
+                    JustifyContent.CENTER                        -> (if (isColumn) pTop else pLeft) + lineAvailMain / 2f
+                    JustifyContent.FLEX_END, JustifyContent.END  -> (if (isColumn) parentHeight - pBottom - lineTotalMain else parentWidth - pRight - lineTotalMain)
+                    JustifyContent.SPACE_AROUND                  -> (if (isColumn) pTop else pLeft) + (lineAvailMain / (line.size * 2f))
+                    JustifyContent.SPACE_EVENLY                  -> (if (isColumn) pTop else pLeft) + (lineAvailMain / (line.size + 1f))
+                    else                                         -> if (isColumn) pTop else pLeft
                 }
 
                 val extraSpacing = when (justify) {
-                    "space-between" -> if (line.size > 1) lineAvailMain / (line.size - 1) else 0f
-                    "space-around" -> lineAvailMain / line.size
-                    "space-evenly" -> lineAvailMain / (line.size + 1f)
-                    else -> 0f
+                    JustifyContent.SPACE_BETWEEN -> if (line.size > 1) lineAvailMain / (line.size - 1) else 0f
+                    JustifyContent.SPACE_AROUND  -> lineAvailMain / line.size
+                    JustifyContent.SPACE_EVENLY  -> lineAvailMain / (line.size + 1f)
+                    else                         -> 0f
                 }
 
                 for ((child, bounds) in line) {
@@ -351,20 +356,20 @@ internal object FlexLayoutEngine {
                     val (cLeft, cTop) = if (isColumn) {
                         val top = currentMain
                         val left = when (align) {
-                            "center" -> currentCross + (lineCrossSize - childW) / 2f
-                            "flex-end" -> currentCross + lineCrossSize - childW
-                            else -> currentCross
+                            AlignItems.CENTER           -> currentCross + (lineCrossSize - childW) / 2f
+                            AlignItems.FLEX_END, AlignItems.END -> currentCross + lineCrossSize - childW
+                            else                        -> currentCross
                         }
-                        currentMain += childH + (if (justify.startsWith("space-")) extraSpacing else gap)
+                        currentMain += childH + (if (justify.isSpaced) extraSpacing else gap)
                         left to top
                     } else {
                         val left = currentMain
                         val top = when (align) {
-                            "center" -> currentCross + (lineCrossSize - childH) / 2f
-                            "flex-end" -> currentCross + lineCrossSize - childH
-                            else -> currentCross
+                            AlignItems.CENTER           -> currentCross + (lineCrossSize - childH) / 2f
+                            AlignItems.FLEX_END, AlignItems.END -> currentCross + lineCrossSize - childH
+                            else                        -> currentCross
                         }
-                        currentMain += childW + (if (justify.startsWith("space-")) extraSpacing else gap)
+                        currentMain += childW + (if (justify.isSpaced) extraSpacing else gap)
                         left to top
                     }
 

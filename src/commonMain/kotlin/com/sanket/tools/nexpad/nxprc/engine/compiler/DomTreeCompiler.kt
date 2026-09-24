@@ -4,10 +4,16 @@ import com.sanket.tools.nexpad.nxprc.CanvasLayer
 import com.sanket.tools.nexpad.nxprc.FillBrush
 import com.sanket.tools.nexpad.nxprc.LayerShapeType
 import com.sanket.tools.nexpad.nxprc.NxprcDefaults
+import com.sanket.tools.nexpad.nxprc.engine.classifier.NodeRoleClassifier
+import com.sanket.tools.nexpad.nxprc.engine.classifier.ShapeClassifier
+import com.sanket.tools.nexpad.nxprc.engine.classifier.allIdentifierTokens
 import com.sanket.tools.nexpad.nxprc.engine.css.CssCascadeResolver
 import com.sanket.tools.nexpad.nxprc.engine.css.CssStylesheet
 import com.sanket.tools.nexpad.nxprc.engine.dom.DomNode
+import com.sanket.tools.nexpad.nxprc.engine.model.SizeMetrics
+import com.sanket.tools.nexpad.nxprc.engine.stack.LayerStack
 import com.sanket.tools.nexpad.nxprc.engine.parsers.*
+
 
 /**
  * Compiles nested DOM element trees, child pseudo-elements (`::before`, `::after`),
@@ -15,39 +21,18 @@ import com.sanket.tools.nexpad.nxprc.engine.parsers.*
  */
 internal object DomTreeCompiler {
 
+    /**
+     * Returns true if [node] belongs to the thumb-cap layer zone for joystick/touchpad buttons.
+     *
+     * Delegates to [NodeRoleClassifier] — replacing all previous inline `contains("base")`,
+     * `contains("thumb")`, `contains("socket")` heuristics that were fragile and untestable.
+     */
     fun isNodeThumbCap(node: DomNode, category: String): Boolean {
         if (!category.equals("JOYSTICK", ignoreCase = true) && !category.equals("TOUCHPAD", ignoreCase = true)) return false
-
-        // 1. Ancestor hierarchy takes highest precedence: containers define physical zones
-        var ancestor = node.parent
-        while (ancestor != null && !ancestor.tag.equals("button", ignoreCase = true)) {
-            val aClass = (ancestor.classNames + listOfNotNull(ancestor.id)).joinToString(" ").lowercase()
-            if (aClass.contains("thumb") || aClass.contains("cap") || aClass.contains("dome") || aClass.contains("knob")) {
-                // Inside a thumb cap container: unless the element explicitly declares itself a fixed base/socket, it belongs to the cap
-                val classOrId = (node.classNames + listOfNotNull(node.id)).joinToString(" ").lowercase()
-                return !classOrId.contains("base") && !classOrId.contains("socket")
-            }
-            if (aClass.contains("base") || aClass.contains("socket") || aClass.contains("bezel") || aClass.contains("chassis") || aClass.contains("housing")) {
-                return false
-            }
-            ancestor = ancestor.parent
-        }
-
-        // 2. Direct element inspection (when elements are direct children of <button>)
-        val classOrId = (node.classNames + listOfNotNull(node.id)).joinToString(" ").lowercase()
-        val isExplicitCap = classOrId.contains("thumb") || classOrId.contains("cap") || classOrId.contains("dome") ||
-                classOrId.contains("knob") || classOrId.contains("grip") || classOrId.contains("core") ||
-                classOrId.contains("stick-label") || classOrId.contains("star") || classOrId.contains("emblem") ||
-                classOrId.contains("glyph")
-        if (isExplicitCap) return true
-
-        val isExplicitBase = classOrId.contains("base") || classOrId.contains("bezel") || classOrId.contains("chassis") ||
-                classOrId.contains("housing") || classOrId.contains("outer") || classOrId.contains("ring") ||
-                classOrId.contains("socket") || classOrId.contains("tick") || classOrId.contains("axis") ||
-                classOrId.contains("marker") || classOrId.contains("node") || classOrId.contains("guide")
-        if (isExplicitBase) return false
-
-        return false
+        val nxprcCategory = com.sanket.tools.nexpad.nxprc.NxprcCategory.fromId(category)
+            ?: com.sanket.tools.nexpad.nxprc.NxprcCategory.JOYSTICK
+        return NodeRoleClassifier.classify(node, nxprcCategory) ==
+               NodeRoleClassifier.NodeRole.THUMB_CAP
     }
 
     /**
@@ -61,7 +46,7 @@ internal object DomTreeCompiler {
         parentGlobalX: Float,
         parentGlobalY: Float,
         isParentClipping: Boolean = false,
-        parentStackBase: Int = 60,
+        parentStackBase: Int = LayerStack.CHILDREN_BASE,
         buttonWidth: Float,
         buttonHeight: Float,
         baseProps: Map<String, String>,
@@ -212,7 +197,7 @@ internal object DomTreeCompiler {
             val cFilter = FilterParser.parse(childStyle["filter"] ?: child.attributes["filter"], svgFilters)
 
             val childZ = GeometryParser.parseZIndex(childStyle)
-            val childStack = parentStackBase + 10 + childZ * 10
+            val childStack = parentStackBase + LayerStack.childSlot(childZ)  // replaces: parentStackBase + 10 + childZ * 100
 
             // If child is an SVG element, extract its shapes directly into VectorPath layers
             if (child.tag.equals("svg", ignoreCase = true)) {
@@ -257,16 +242,19 @@ internal object DomTreeCompiler {
                 isTopOnly = isChildTopOnly
             )
             val cClip = GeometryParser.parseClipPath(childStyle["clip-path"] ?: childStyle["-webkit-clip-path"], cWidth, cHeight)
-            val isCOval = childStyle["border-radius"]?.contains("50%") == true ||
-                (cRadii.topLeft >= (cWidth * 0.35f) && cRadii.topRight >= (cWidth * 0.35f) &&
-                 cRadii.bottomRight >= (cWidth * 0.35f) && cRadii.bottomLeft >= (cWidth * 0.35f))
-            val cShape = when {
-                cClip != null -> cClip.shapeType
-                isCOval -> LayerShapeType.OVAL.name
-                else -> LayerShapeType.ROUNDED_RECT.name
-            }
-            val cPolySides = cClip?.polygonSides ?: 0
-            val cPolyPath = cClip?.pathData ?: ""
+
+            // ── ShapeClassifier replaces the inline 0.35f oval check for DOM children ─────────────
+            val cShapeDescriptor = ShapeClassifier.classify(
+                radii           = cRadii,
+                width           = cWidth,
+                height          = cHeight,
+                borderRadiusCss = childStyle["border-radius"],
+                clipPath        = cClip
+            )
+            val cShape    = cShapeDescriptor.shapeTypeId
+            val cPolySides = cShapeDescriptor.polygonSides
+            val cPolyPath  = cShapeDescriptor.pathData
+
 
             val cBg = childStyle["background"] ?: childStyle["background-color"]
             val cFills = if (cBg != null) {
