@@ -19,7 +19,9 @@ object GradientParser {
     fun parseAll(
         bgStr: String?,
         positionStr: String? = null,
-        sizeStr: String? = null
+        sizeStr: String? = null,
+        boxWidth: Float = 0f,
+        boxHeight: Float = 0f
     ): List<FillBrush> {
         if (bgStr == null) return listOf(FillBrush.Solid(0xFF0A192FL))
         val clean = bgStr.trim()
@@ -31,7 +33,7 @@ object GradientParser {
 
         val list = parts.mapNotNull { part ->
             val p = part.trim()
-            if (p.isBlank()) null else parseSingle(p, defaultPos, defaultSizeRatio)
+            if (p.isBlank()) null else parseSingle(p, defaultPos, defaultSizeRatio, boxWidth, boxHeight)
         }
         return if (list.isNotEmpty()) list else listOf(FillBrush.Solid(0xFF0A192FL))
     }
@@ -39,15 +41,19 @@ object GradientParser {
     fun parseFirst(
         bgStr: String?,
         positionStr: String? = null,
-        sizeStr: String? = null
+        sizeStr: String? = null,
+        boxWidth: Float = 0f,
+        boxHeight: Float = 0f
     ): FillBrush {
-        return parseAll(bgStr, positionStr, sizeStr).firstOrNull() ?: FillBrush.Solid(0xFF0A192FL)
+        return parseAll(bgStr, positionStr, sizeStr, boxWidth, boxHeight).firstOrNull() ?: FillBrush.Solid(0xFF0A192FL)
     }
 
     private fun parseSingle(
         clean: String,
         defaultPos: Pair<Float, Float>? = null,
-        defaultSizeRatio: Float = 1.0f
+        defaultSizeRatio: Float = 1.0f,
+        boxWidth: Float = 0f,
+        boxHeight: Float = 0f
     ): FillBrush? {
         // Radial Gradient
         if (clean.contains("radial-gradient")) {
@@ -124,9 +130,11 @@ object GradientParser {
             }
         }
 
-        // Linear Gradient
+        // Linear Gradient (including repeating-linear-gradient)
         if (clean.contains("linear-gradient")) {
-            val inner = GradientStopsParser.extractParenthesizedContent(clean, "linear-gradient")
+            val isRepeating = clean.contains("repeating-linear-gradient")
+            val funcName = if (isRepeating) "repeating-linear-gradient" else "linear-gradient"
+            val inner = GradientStopsParser.extractParenthesizedContent(clean, funcName)
             if (inner != null) {
                 var angle = 180f // CSS default is "to bottom" = 180deg
 
@@ -158,7 +166,18 @@ object GradientParser {
                     }
                 }
 
-                val (colors, stops) = parseGradientStops(inner)
+                val axisDim = when {
+                    angle == 180f || angle == 0f -> if (boxHeight > 0f) boxHeight else 48f
+                    angle == 90f || angle == 270f -> if (boxWidth > 0f) boxWidth else 48f
+                    boxWidth > 0f && boxHeight > 0f -> kotlin.math.hypot(boxWidth.toDouble(), boxHeight.toDouble()).toFloat()
+                    else -> 48f
+                }
+
+                val (colors, stops) = GradientStopsParser.parseGradientStops(
+                    inner = inner,
+                    isRepeating = isRepeating,
+                    axisDimensionPx = axisDim
+                )
                 if (colors.size >= 2) {
                     return FillBrush.LinearGradient(colors = colors, angleDegrees = angle, stops = stops)
                 }
@@ -211,8 +230,12 @@ object GradientParser {
         return null
     }
 
-    fun parseGradientStops(inner: String): Pair<List<Long>, List<Float>> =
-        GradientStopsParser.parseGradientStops(inner)
+    fun parseGradientStops(
+        inner: String,
+        isRepeating: Boolean = false,
+        axisDimensionPx: Float = 0f
+    ): Pair<List<Long>, List<Float>> =
+        GradientStopsParser.parseGradientStops(inner, isRepeating, axisDimensionPx)
 
     fun splitTopLevelCommas(text: String): List<String> =
         GradientStopsParser.splitTopLevelCommas(text)

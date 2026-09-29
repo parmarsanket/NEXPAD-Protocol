@@ -47,8 +47,12 @@ object ShapeClassifier {
         if (borderRadiusCss?.contains("50%") == true) return ShapeDescriptor.Oval
 
         // Priority 3: corner-radii threshold check (uses SizeMetrics.OVAL_RADIUS_RATIO)
+        // Only elements that are roughly circular/square (aspect ratio 0.8..1.25) can be classified
+        // as an Oval via corner radius threshold. High-aspect-ratio elements (e.g. 3x33 strips or pills)
+        // are RoundedRect with their defined radii, preserving straight sides.
         val metrics = SizeMetrics(width, height)
-        if (radii.isOval(metrics)) return ShapeDescriptor.Oval
+        val isNearSquare = metrics.aspectRatio in 0.8f..1.25f
+        if (isNearSquare && radii.isOval(metrics)) return ShapeDescriptor.Oval
 
         // Default: rounded rectangle
         return ShapeDescriptor.RoundedRect(radii)

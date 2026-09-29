@@ -126,7 +126,9 @@ object NxprcCompiler {
         val rawFills = GradientParser.parseAll(
             baseProps["background"] ?: baseProps["background-color"] ?: baseProps["fill"],
             baseProps["background-position"],
-            baseProps["background-size"]
+            baseProps["background-size"],
+            boxWidth = buttonWidth,
+            boxHeight = buttonHeight
         )
         val bgColor = ColorParser.parse(baseProps["background-color"])
         val allFills = if (bgColor != null && bgColor != 0x00000000L && rawFills.none { it is FillBrush.Solid && it.color == bgColor }) {
@@ -140,8 +142,10 @@ object NxprcCompiler {
                     it.contains("box") || it.contains("card") || it.contains("panel")
                 }))
 
-        // Drop shadow / Atmospheric Glow Layer (requires blur > 0 and bright non-dark color)
-        val glowShadow = outsetShadows.firstOrNull { it.blurRadius > 0f && !ColorParser.isDark(it.color) }
+        // Atmospheric Glow Ring: requires substantial blur (>= 6dp) and visible opacity (>= 25%), not subtle highlights
+        val glowShadow = outsetShadows.firstOrNull {
+            it.blurRadius >= 6f && ((it.color shr 24) and 0xFF) >= 0x40L && !ColorParser.isDark(it.color)
+        }
         if (glowShadow != null) {
             layerCollector.addLayer(
                 LayerStack.GLOW_RING,

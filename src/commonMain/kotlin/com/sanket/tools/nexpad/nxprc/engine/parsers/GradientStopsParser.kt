@@ -138,11 +138,17 @@ internal object GradientStopsParser {
      * Parses gradient stops from inner CSS gradient definitions, interpolating missing stops
      * and enforcing monotonic ordering for GPU brush shaders.
      */
-    fun parseGradientStops(inner: String): Pair<List<Long>, List<Float>> {
-        val colors = mutableListOf<Long>()
-        val stops = mutableListOf<Float>()
+    fun parseGradientStops(
+        inner: String,
+        isRepeating: Boolean = false,
+        axisDimensionPx: Float = 0f
+    ): Pair<List<Long>, List<Float>> {
+        val rawColors = mutableListOf<Long>()
+        val rawPcts = mutableListOf<Float?>()
+        val rawPxs = mutableListOf<Float?>()
 
         val parts = splitTopLevelCommas(inner)
+        val pxPattern = Pattern.compile("(-?\\d+(?:\\.\\d+)?)px")
 
         parts.forEach { part ->
             val p = part.trim()
@@ -161,72 +167,139 @@ internal object GradientStopsParser {
                     pcts.add((pctMatcher.group(1).toFloatOrNull() ?: 0f) / 100f)
                 }
 
+                val pxs = mutableListOf<Float>()
+                val pxMatcher = pxPattern.matcher(p)
+                while (pxMatcher.find()) {
+                    pxs.add(pxMatcher.group(1).toFloatOrNull() ?: 0f)
+                }
+
                 val degMatcher = CssSyntaxPattern.DEGREE.matcher(p)
 
                 when {
                     pcts.size >= 2 -> {
-                        // Multi-position stop: e.g. "#fff 20% 50%" creates two stops
-                        colors.add(color)
-                        stops.add(pcts[0])
-                        colors.add(color)
-                        stops.add(pcts[1])
+                        rawColors.add(color); rawPcts.add(pcts[0]); rawPxs.add(null)
+                        rawColors.add(color); rawPcts.add(pcts[1]); rawPxs.add(null)
                     }
                     pcts.size == 1 -> {
-                        colors.add(color)
-                        stops.add(pcts[0])
+                        rawColors.add(color); rawPcts.add(pcts[0]); rawPxs.add(null)
+                    }
+                    pxs.size >= 2 -> {
+                        rawColors.add(color); rawPcts.add(null); rawPxs.add(pxs[0])
+                        rawColors.add(color); rawPcts.add(null); rawPxs.add(pxs[1])
+                    }
+                    pxs.size == 1 -> {
+                        rawColors.add(color); rawPcts.add(null); rawPxs.add(pxs[0])
                     }
                     degMatcher.find() -> {
-                        colors.add(color)
-                        stops.add(((degMatcher.group(1).toFloatOrNull() ?: 0f) / 360f).coerceIn(0f, 1f))
+                        rawColors.add(color)
+                        rawPcts.add(((degMatcher.group(1).toFloatOrNull() ?: 0f) / 360f).coerceIn(0f, 1f))
+                        rawPxs.add(null)
                     }
                     else -> {
-                        colors.add(color)
-                        stops.add(-1f)
+                        rawColors.add(color); rawPcts.add(null); rawPxs.add(null)
                     }
                 }
             }
         }
 
-        if (colors.isNotEmpty() && stops.contains(-1f)) {
-            val interpolated = stops.toMutableList()
-            // Set first/last if undefined
-            if (interpolated[0] < 0f) interpolated[0] = 0f
-            if (interpolated.last() < 0f) interpolated[interpolated.lastIndex] = 1f
-            // Linear-interpolate between defined anchor points
-            var lastDefined = 0
-            for (i in 1 until interpolated.size) {
-                if (interpolated[i] >= 0f) {
-                    if (i - lastDefined > 1) {
-                        val startVal = interpolated[lastDefined]
-                        val endVal = interpolated[i]
-                        val span = i - lastDefined
-                        for (j in 1 until span) {
-                            interpolated[lastDefined + j] = startVal + (endVal - startVal) * j / span
+        if (rawColors.isEmpty()) return Pair(emptyList(), emptyList())
+
+        // 1. Pixel-based stops
+        val hasPixelStops = rawPxs.any { it != null }
+        if (hasPixelStops) {
+            val nonNullPxs = rawPxs.filterNotNull()
+            val minPx = nonNullPxs.minOrNull() ?: 0f
+            val maxPx = nonNullPxs.maxOrNull() ?: 0f
+            val periodPx = maxPx - minPx
+            val targetDim = if (axisDimensionPx > 0f) axisDimensionPx else if (periodPx > 0f) periodPx * 5f else 48f
+
+            if (isRepeating && periodPx > 0f) {
+                val cycles = (targetDim / periodPx).toInt().coerceIn(2, 25) + 1
+                val expColors = mutableListOf<Long>()
+                val expStops = mutableListOf<Float>()
+                for (cycle in 0 until cycles) {
+                    val cycleBasePx = cycle * periodPx
+                    for (i in rawColors.indices) {
+                        val px = rawPxs[i] ?: (i.toFloat() / (rawColors.size - 1).coerceAtLeast(1) * periodPx)
+                        val totalPx = cycleBasePx + px
+                        val ratio = (totalPx / targetDim)
+                        if (ratio <= 1.0f) {
+                            expColors.add(rawColors[i])
+                            expStops.add(ratio)
                         }
                     }
-                    lastDefined = i
                 }
-            }
-            // Ensure monotonic non-decreasing for Compose Brush requirements
-            for (i in 1 until interpolated.size) {
-                if (interpolated[i] < interpolated[i - 1]) {
-                    interpolated[i] = interpolated[i - 1]
+                if (expStops.isNotEmpty() && expStops.last() < 1.0f) {
+                    expColors.add(rawColors.last())
+                    expStops.add(1.0f)
                 }
+                return finalizeStops(expColors, expStops)
+            } else {
+                val resolvedStops = rawPxs.mapIndexed { i, px ->
+                    if (px != null) (px / targetDim).coerceIn(0f, 1f)
+                    else i.toFloat() / (rawColors.size - 1).coerceAtLeast(1)
+                }
+                return finalizeStops(rawColors, resolvedStops)
             }
-            return Pair(colors, interpolated)
         }
 
-        // Ensure monotonic non-decreasing even if all stops were defined
-        if (stops.size > 1) {
-            val sortedStops = stops.toMutableList()
-            for (i in 1 until sortedStops.size) {
-                if (sortedStops[i] < sortedStops[i - 1]) {
-                    sortedStops[i] = sortedStops[i - 1]
+        // 2. Percentage stops (interpolate missing -1f values)
+        val baseStops = rawPcts.map { it ?: -1f }
+        val interpolated = baseStops.toMutableList()
+        if (interpolated[0] < 0f) interpolated[0] = 0f
+        if (interpolated.last() < 0f) interpolated[interpolated.lastIndex] = 1f
+        var lastDefined = 0
+        for (i in 1 until interpolated.size) {
+            if (interpolated[i] >= 0f) {
+                if (i - lastDefined > 1) {
+                    val startVal = interpolated[lastDefined]
+                    val endVal = interpolated[i]
+                    val span = i - lastDefined
+                    for (j in 1 until span) {
+                        interpolated[lastDefined + j] = startVal + (endVal - startVal) * j / span
+                    }
                 }
+                lastDefined = i
             }
-            return Pair(colors, sortedStops)
         }
 
-        return Pair(colors, stops)
+        if (isRepeating && interpolated.isNotEmpty()) {
+            val minS = interpolated.minOrNull() ?: 0f
+            val maxS = interpolated.maxOrNull() ?: 1f
+            val period = maxS - minS
+            if (period in 0.01f..0.99f) {
+                val cycles = (1.0f / period).toInt().coerceIn(2, 25) + 1
+                val expColors = mutableListOf<Long>()
+                val expStops = mutableListOf<Float>()
+                for (cycle in 0 until cycles) {
+                    val cycleBase = cycle * period
+                    for (i in rawColors.indices) {
+                        val s = cycleBase + interpolated[i]
+                        if (s <= 1.0f) {
+                            expColors.add(rawColors[i])
+                            expStops.add(s)
+                        }
+                    }
+                }
+                if (expStops.isNotEmpty() && expStops.last() < 1.0f) {
+                    expColors.add(rawColors.last())
+                    expStops.add(1.0f)
+                }
+                return finalizeStops(expColors, expStops)
+            }
+        }
+
+        return finalizeStops(rawColors, interpolated)
+    }
+
+    private fun finalizeStops(colors: List<Long>, stops: List<Float>): Pair<List<Long>, List<Float>> {
+        if (stops.isEmpty()) return Pair(colors, stops)
+        val sortedStops = stops.toMutableList()
+        for (i in 1 until sortedStops.size) {
+            if (sortedStops[i] < sortedStops[i - 1]) {
+                sortedStops[i] = sortedStops[i - 1]
+            }
+        }
+        return Pair(colors, sortedStops)
     }
 }

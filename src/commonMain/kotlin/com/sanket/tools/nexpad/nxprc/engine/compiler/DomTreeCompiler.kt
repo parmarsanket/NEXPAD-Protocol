@@ -176,14 +176,20 @@ internal object DomTreeCompiler {
             val pPolyPath  = pShapeDescriptor.pathData
 
             val pZ = GeometryParser.parseZIndex(pseudoStyle)
-            val pStack = parentStack + (if (isBefore) 1 else 2) + pZ * 10
+            val pStack = if (pZ != 0) {
+                if (isBefore) LayerStack.beforeSlot(pZ) else LayerStack.afterSlot(pZ)
+            } else {
+                parentStack + (if (isBefore) 1 else 2)
+            }
 
             val pBg = pseudoStyle["background"] ?: pseudoStyle["background-color"]
             val pFills = if (pBg != null) {
                 GradientParser.parseAll(
                     pBg,
                     pseudoStyle["background-position"],
-                    pseudoStyle["background-size"]
+                    pseudoStyle["background-size"],
+                    boxWidth = pWidth,
+                    boxHeight = pHeight
                 )
             } else emptyList()
 
@@ -315,7 +321,9 @@ internal object DomTreeCompiler {
                 GradientParser.parseAll(
                     cBg,
                     childStyle["background-position"],
-                    childStyle["background-size"]
+                    childStyle["background-size"],
+                    boxWidth = cWidth,
+                    boxHeight = cHeight
                 )
             } else emptyList()
 

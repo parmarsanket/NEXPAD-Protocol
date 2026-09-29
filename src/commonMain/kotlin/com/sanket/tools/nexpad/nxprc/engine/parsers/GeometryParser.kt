@@ -115,6 +115,9 @@ object GeometryParser {
             else -> parentW
         }
 
+        val lineHeight = style["line-height"]?.let { parsePixelOrPercent(it, parentH, 0f) }
+        val fontSize = style["font-size"]?.let { parsePixelOrPercent(it, parentH, 0f) }
+
         var height = when {
             explicitHeight != null -> explicitHeight
             constraints.top.isExplicit && constraints.bottom.isExplicit -> {
@@ -122,6 +125,9 @@ object GeometryParser {
                 val b = constraints.bottom.resolve(parentH) ?: 0f
                 (parentH - t - b).coerceAtLeast(0f)
             }
+            lineHeight != null && lineHeight > 0f -> lineHeight
+            fontSize != null && fontSize > 0f -> fontSize * 1.25f
+            constraints.bottom.isExplicit && !constraints.top.isExplicit -> 0f
             else -> parentH
         }
 

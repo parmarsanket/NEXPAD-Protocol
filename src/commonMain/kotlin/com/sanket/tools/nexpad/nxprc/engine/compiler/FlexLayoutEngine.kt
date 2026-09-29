@@ -39,61 +39,64 @@ internal object FlexLayoutEngine {
         parentWidth: Float,
         parentHeight: Float
     ): ComputedBoxBounds {
-        if (DisplayValue.parse(parentStyle["display"]) != DisplayValue.FLEX) return rawBounds
+        val isFlex = DisplayValue.parse(parentStyle["display"]) == DisplayValue.FLEX
 
         val constraints = GeometryParser.extractPositionConstraints(childStyle, parentWidth, parentHeight)
 
-        // Flex container padding
+        // Container padding
         val pad = GeometryParser.parseInset(parentStyle["padding"], parentWidth, parentHeight)
         val pTop = GeometryParser.parsePixelOrPercent(parentStyle["padding-top"], parentHeight, pad?.top ?: 0f)
         val pBottom = GeometryParser.parsePixelOrPercent(parentStyle["padding-bottom"], parentHeight, pad?.bottom ?: 0f)
         val pLeft = GeometryParser.parsePixelOrPercent(parentStyle["padding-left"], parentWidth, pad?.left ?: 0f)
         val pRight = GeometryParser.parsePixelOrPercent(parentStyle["padding-right"], parentWidth, pad?.right ?: 0f)
 
-        // ── Typed flex orientation & alignment (replaces raw "center", "column" strings) ──────────
-        val direction = FlexDirection.parse(parentStyle["flex-direction"])
-        val isColumn  = direction.isColumn
-        val isReverse = direction.isReverse
-        val justify   = JustifyContent.parse(parentStyle["justify-content"])
-        val align     = AlignItems.parseSelf(childStyle["align-self"])
-            ?: AlignItems.parse(parentStyle["align-items"])
+        val (staticLeft, staticTop) = if (isFlex) {
+            // ── Typed flex orientation & alignment (replaces raw "center", "column" strings) ──────────
+            val direction = FlexDirection.parse(parentStyle["flex-direction"])
+            val isColumn  = direction.isColumn
+            val isReverse = direction.isReverse
+            val justify   = JustifyContent.parse(parentStyle["justify-content"])
+            val align     = AlignItems.parseSelf(childStyle["align-self"])
+                ?: AlignItems.parse(parentStyle["align-items"])
 
-        val availMain = if (isColumn) {
-            (parentHeight - pTop - pBottom - rawBounds.height).coerceAtLeast(0f)
-        } else {
-            (parentWidth - pLeft - pRight - rawBounds.width).coerceAtLeast(0f)
-        }
-
-        val availCross = if (isColumn) {
-            (parentWidth - pLeft - pRight - rawBounds.width).coerceAtLeast(0f)
-        } else {
-            (parentHeight - pTop - pBottom - rawBounds.height).coerceAtLeast(0f)
-        }
-
-        val startMain = if (isColumn) pTop else pLeft
-        val staticMain = if (!isReverse) {
-            when (justify) {
-                JustifyContent.CENTER, JustifyContent.SPACE_AROUND, JustifyContent.SPACE_EVENLY -> startMain + availMain / 2f
-                JustifyContent.FLEX_END, JustifyContent.END -> startMain + availMain
-                else -> startMain // FLEX_START, SPACE_BETWEEN (1 item sits at start)
+            val availMain = if (isColumn) {
+                (parentHeight - pTop - pBottom - rawBounds.height).coerceAtLeast(0f)
+            } else {
+                (parentWidth - pLeft - pRight - rawBounds.width).coerceAtLeast(0f)
             }
-        } else {
-            when (justify) {
-                JustifyContent.CENTER, JustifyContent.SPACE_AROUND, JustifyContent.SPACE_EVENLY -> startMain + availMain / 2f
-                JustifyContent.FLEX_START, JustifyContent.START, JustifyContent.SPACE_BETWEEN  -> startMain + availMain
-                else -> startMain // FLEX_END in reverse is at start
+
+            val availCross = if (isColumn) {
+                (parentWidth - pLeft - pRight - rawBounds.width).coerceAtLeast(0f)
+            } else {
+                (parentHeight - pTop - pBottom - rawBounds.height).coerceAtLeast(0f)
             }
-        }
 
-        val startCross = if (isColumn) pLeft else pTop
-        val staticCross = when (align) {
-            AlignItems.CENTER           -> startCross + availCross / 2f
-            AlignItems.FLEX_END, AlignItems.END -> startCross + availCross
-            else -> startCross // FLEX_START, STRETCH, BASELINE
-        }
+            val startMain = if (isColumn) pTop else pLeft
+            val staticMain = if (!isReverse) {
+                when (justify) {
+                    JustifyContent.CENTER, JustifyContent.SPACE_AROUND, JustifyContent.SPACE_EVENLY -> startMain + availMain / 2f
+                    JustifyContent.FLEX_END, JustifyContent.END -> startMain + availMain
+                    else -> startMain // FLEX_START, SPACE_BETWEEN (1 item sits at start)
+                }
+            } else {
+                when (justify) {
+                    JustifyContent.CENTER, JustifyContent.SPACE_AROUND, JustifyContent.SPACE_EVENLY -> startMain + availMain / 2f
+                    JustifyContent.FLEX_START, JustifyContent.START, JustifyContent.SPACE_BETWEEN  -> startMain + availMain
+                    else -> startMain // FLEX_END in reverse is at start
+                }
+            }
 
-        val staticLeft = if (isColumn) staticCross else staticMain
-        val staticTop = if (isColumn) staticMain else staticCross
+            val startCross = if (isColumn) pLeft else pTop
+            val staticCross = when (align) {
+                AlignItems.CENTER           -> startCross + availCross / 2f
+                AlignItems.FLEX_END, AlignItems.END -> startCross + availCross
+                else -> startCross // FLEX_START, STRETCH, BASELINE
+            }
+
+            Pair(if (isColumn) staticCross else staticMain, if (isColumn) staticMain else staticCross)
+        } else {
+            Pair(rawBounds.left, rawBounds.top)
+        }
 
         val resolvedLeft = when {
             constraints.left.isExplicit && constraints.right.isExplicit -> {
