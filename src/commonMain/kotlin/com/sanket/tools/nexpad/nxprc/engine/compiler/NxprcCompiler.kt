@@ -137,11 +137,6 @@ object NxprcCompiler {
             rawFills
         }
 
-        val isBoxPrimitive = primaryNode.attributes["data-primitive"] == "box" ||
-                (!hasExplicitBezel && (allFills.size > 1 || allBoxShadows.size > 1 || rootClip != null || primaryNode.classNames.any {
-                    it.contains("box") || it.contains("card") || it.contains("panel")
-                }))
-
         // Atmospheric Glow Ring: requires substantial blur (>= 6dp) and visible opacity (>= 25%), not subtle highlights
         val glowShadow = outsetShadows.firstOrNull {
             it.blurRadius >= 6f && ((it.color shr 24) and 0xFF) >= 0x40L && !ColorParser.isDark(it.color)
@@ -163,9 +158,54 @@ object NxprcCompiler {
         val baseFilterDef = EffectsResolver.toFilterDef(baseFilter)
         val baseRotating = AnimationParser.isRotatingAnimation(stylesheet, baseProps)
 
-        var surfaceSvgNode: DomNode? = null
+        // Outer Bezel Socket Layer (only for explicit bezel/socket markup or joystick socket base)
+        if (hasExplicitBezel) {
+            val outerBezelColor = border?.color ?: 0xFF1C1D24L
+            val ringShadow = outsetShadows.firstOrNull { it.spreadRadius > 0f }
+            val strokeColor = ringShadow?.color ?: border?.color ?: 0xFF292A30L
+            val primaryDarkShadow = outsetShadows.firstOrNull { ColorParser.isDark(it.color) }?.color ?: NxprcDefaults.DEFAULT_SHADOW_COLOR
 
-        if (isBoxPrimitive) {
+            layerCollector.addLayer(
+                LayerStack.BEZEL_SOCKET,
+                CanvasLayer.BezelSocket(
+                    outerBezelColor = outerBezelColor,
+                    outerBevelStroke = strokeColor,
+                    shadowColor = primaryDarkShadow
+                )
+            )
+        }
+
+        // 3. Main Surface Background (SVG Shapes/Paths or Composited BoxLayer with multi-fills & box-shadows)
+        var surfaceSvgNode: DomNode? = null
+        val paintServers = SvgGeometryParser.extractPaintServers(primaryNode, stylesheet)
+        val directSurfaceChild = if (primaryNode.tag.equals("svg", ignoreCase = true)) {
+            primaryNode
+        } else if (allFills.isEmpty() && primaryNode.children.size == 1 && primaryNode.children[0].tag.equals("svg", ignoreCase = true)) {
+            primaryNode.children[0]
+        } else if (allFills.isEmpty()) {
+            primaryNode.children.firstOrNull { it.tag.equals("svg", ignoreCase = true) && it.classNames.any { c -> c.contains("surface") || c.contains("bg") } }
+        } else {
+            null
+        }
+
+        surfaceSvgNode = directSurfaceChild
+        val svgShapes = if (surfaceSvgNode != null) surfaceSvgNode.getAllSvgShapes(stylesheet, paintServers) else emptyList()
+
+        if (svgShapes.isNotEmpty()) {
+            svgShapes.forEachIndexed { index, shape ->
+                val resolvedFill = shape.fill ?: if (index == 0) allFills.firstOrNull() ?: FillBrush.Solid(NxprcDefaults.DEFAULT_FILL_COLOR) else FillBrush.Solid(0x00000000L)
+                val resolvedStroke = shape.stroke ?: border
+                layerCollector.addLayer(
+                    LayerStack.SURFACE,
+                    CanvasLayer.VectorPath(
+                        pathData = shape.pathData,
+                        fill = resolvedFill,
+                        stroke = resolvedStroke,
+                        isRotating = baseRotating
+                    )
+                )
+            }
+        } else {
             val rootBox = BoxLayerBuilder.buildBoxLayer(
                 shapeType = shapeType,
                 polygonSides = rootPolySides,
@@ -189,87 +229,6 @@ object NxprcCompiler {
                 drawCacheHint = !baseRotating
             )
             layerCollector.addLayer(LayerStack.SURFACE, rootBox)
-        } else {
-            // Outer Bezel Socket Layer
-            if (hasExplicitBezel) {
-                val outerBezelColor = border?.color ?: 0xFF1C1D24L
-                val ringShadow = outsetShadows.firstOrNull { it.spreadRadius > 0f }
-                val strokeColor = ringShadow?.color ?: border?.color ?: 0xFF292A30L
-                val primaryDarkShadow = outsetShadows.firstOrNull { ColorParser.isDark(it.color) }?.color ?: NxprcDefaults.DEFAULT_SHADOW_COLOR
-
-                layerCollector.addLayer(
-                    LayerStack.BEZEL_SOCKET,
-                    CanvasLayer.BezelSocket(
-                        outerBezelColor = outerBezelColor,
-                        outerBevelStroke = strokeColor,
-                        shadowColor = primaryDarkShadow
-                    )
-                )
-            }
-
-            // 3. Main Surface Background (SVG Shapes/Paths or Multi-layer Gradients)
-            val paintServers = SvgGeometryParser.extractPaintServers(primaryNode, stylesheet)
-            val directSurfaceChild = if (primaryNode.tag.equals("svg", ignoreCase = true)) {
-                primaryNode
-            } else if (allFills.isEmpty() && primaryNode.children.size == 1 && primaryNode.children[0].tag.equals("svg", ignoreCase = true)) {
-                primaryNode.children[0]
-            } else if (allFills.isEmpty()) {
-                primaryNode.children.firstOrNull { it.tag.equals("svg", ignoreCase = true) && it.classNames.any { c -> c.contains("surface") || c.contains("bg") } }
-            } else {
-                null
-            }
-
-            surfaceSvgNode = directSurfaceChild
-            val svgShapes = if (surfaceSvgNode != null) surfaceSvgNode.getAllSvgShapes(stylesheet, paintServers) else emptyList()
-
-            if (svgShapes.isNotEmpty()) {
-                svgShapes.forEachIndexed { index, shape ->
-                    val resolvedFill = shape.fill ?: if (index == 0) allFills.firstOrNull() ?: FillBrush.Solid(NxprcDefaults.DEFAULT_FILL_COLOR) else FillBrush.Solid(0x00000000L)
-                    val resolvedStroke = shape.stroke ?: border
-                    layerCollector.addLayer(
-                        LayerStack.SURFACE,
-                        CanvasLayer.VectorPath(
-                            pathData = shape.pathData,
-                            fill = resolvedFill,
-                            stroke = resolvedStroke,
-                            isRotating = baseRotating
-                        )
-                    )
-                }
-            } else {
-                allFills.reversed().forEachIndexed { index, fillBrush ->
-                    val shape = BoxLayerBuilder.buildGradientShape(
-                        shapeType = shapeType,
-                        cornerRadius = radii.topLeft,
-                        fill = fillBrush,
-                        stroke = if (index == allFills.size - 1) border else null,
-                        width = buttonWidth,
-                        height = buttonHeight,
-                        left = 0f,
-                        top = 0f,
-                        buttonWidth = buttonWidth,
-                        buttonHeight = buttonHeight,
-                        filterDef = baseFilterDef,
-                        opacity = baseOpacity,
-                        transform = baseTransform,
-                        boxShadows = allBoxShadows,
-                        hasMultipleFills = allFills.size > 1,
-                        drawCacheHint = !baseRotating
-                    )
-                    layerCollector.addLayer(LayerStack.SURFACE, shape)
-                }
-            }
-
-            // 4. Inset Shadows / Perimeter Groove
-            val afterShadows = afterStyle?.get("box-shadow")?.let { ShadowParser.parseBoxShadows(it) } ?: emptyList()
-            val afterInsets = afterShadows.filter { it.isInset }
-            val combinedInset = (insetShadows + afterInsets)
-
-            if (combinedInset.isNotEmpty()) {
-                val darkInset = combinedInset.firstOrNull { ColorParser.isDark(it.color) }?.color ?: NxprcDefaults.DEFAULT_SHADOW_COLOR
-                val lightInset = combinedInset.firstOrNull { !ColorParser.isDark(it.color) }?.color ?: SizeMetrics.INNER_SHADOW_LIGHT_COLOR
-                layerCollector.addLayer(LayerStack.INNER_SHADOW, CanvasLayer.InnerShadow(shadowColor = darkInset, highlightColor = lightInset, strokeWidth = SizeMetrics.INNER_SHADOW_STROKE_DP))
-            }
         }
 
         // Text nodes
@@ -334,7 +293,7 @@ object NxprcCompiler {
             val beforeShadows = beforeStyle["box-shadow"]?.let { ShadowParser.parseBoxShadows(it) } ?: emptyList()
             val beforeFilterDef = EffectsResolver.toFilterDef(beforeFilter)
 
-            if (isBoxPrimitive && (beforeBgs.isNotEmpty() || beforeBorder != null || beforeShadows.isNotEmpty())) {
+            if (beforeBgs.isNotEmpty() || beforeBorder != null || beforeShadows.isNotEmpty()) {
                 val beforeBox = BoxLayerBuilder.buildBoxLayer(
                     shapeType = beforeShape,
                     polygonSides = beforePolySides,
@@ -356,35 +315,6 @@ object NxprcCompiler {
                     drawCacheHint = true
                 )
                 layerCollector.addLayer(beforeStack, beforeBox)
-            } else {
-                beforeBgs.reversed().forEachIndexed { index, bg ->
-                    val shape = BoxLayerBuilder.buildGradientShape(
-                        shapeType = beforeShape,
-                        cornerRadius = beforeRadii.topLeft,
-                        fill = bg,
-                        stroke = if (index == beforeBgs.size - 1) beforeBorder else null,
-                        width = beforeWidth,
-                        height = beforeHeight,
-                        left = beforeLeft,
-                        top = beforeTop,
-                        buttonWidth = buttonWidth,
-                        buttonHeight = buttonHeight,
-                        filterDef = beforeFilterDef,
-                        opacity = beforeOpacity,
-                        transform = beforeTransform,
-                        boxShadows = beforeShadows,
-                        hasMultipleFills = beforeBgs.size > 1,
-                        drawCacheHint = true
-                    )
-                    layerCollector.addLayer(beforeStack, shape)
-                }
-
-                val beforeInsets = beforeShadows.filter { it.isInset }
-                if (beforeInsets.isNotEmpty() && !isBoxPrimitive) {
-                    val darkB = beforeInsets.firstOrNull { ColorParser.isDark(it.color) }?.color ?: NxprcDefaults.DEFAULT_SHADOW_COLOR
-                    val lightB = beforeInsets.firstOrNull { !ColorParser.isDark(it.color) }?.color ?: SizeMetrics.INNER_SHADOW_LIGHT_COLOR
-                    layerCollector.addLayer(beforeStack + 2, CanvasLayer.InnerShadow(shadowColor = darkB, highlightColor = lightB, strokeWidth = SizeMetrics.INNER_SHADOW_STROKE_DP))
-                }
             }
         }
 
@@ -469,7 +399,7 @@ object NxprcCompiler {
 
             val afterFilterDef = EffectsResolver.toFilterDef(afterFilter)
 
-            if (afterBgs.isNotEmpty() || afterBorder != null || (isBoxPrimitive && afterShadows.isNotEmpty())) {
+            if (afterBgs.isNotEmpty() || afterBorder != null || afterShadows.isNotEmpty()) {
                 val afterBox = BoxLayerBuilder.buildBoxLayer(
                     shapeType = afterShape,
                     polygonSides = afterPolySides,
@@ -491,28 +421,6 @@ object NxprcCompiler {
                     drawCacheHint = true
                 )
                 layerCollector.addLayer(afterStack, afterBox)
-            } else if (afterBgs.isNotEmpty()) {
-                afterBgs.reversed().forEachIndexed { index, bg ->
-                    val shape = BoxLayerBuilder.buildGradientShape(
-                        shapeType = shapeType,
-                        cornerRadius = radii.topLeft,
-                        fill = bg,
-                        stroke = if (index == afterBgs.size - 1) afterBorder else null,
-                        width = afterWidth,
-                        height = afterHeight,
-                        left = 0f,
-                        top = 0f,
-                        buttonWidth = buttonWidth,
-                        buttonHeight = buttonHeight,
-                        filterDef = afterFilterDef,
-                        opacity = afterOpacity,
-                        transform = afterTransform,
-                        boxShadows = afterShadows,
-                        hasMultipleFills = afterBgs.size > 1,
-                        drawCacheHint = true
-                    )
-                    layerCollector.addLayer(afterStack, shape)
-                }
             }
         }
 
