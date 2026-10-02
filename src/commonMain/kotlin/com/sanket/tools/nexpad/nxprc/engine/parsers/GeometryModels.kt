@@ -57,6 +57,16 @@ data class PositionConstraints(
 }
 
 /**
+ * 2D Vector coordinate position in density-independent pixels.
+ */
+data class Point2D(val x: Float = 0f, val y: Float = 0f)
+
+/**
+ * 2D Dimension size in density-independent pixels.
+ */
+data class Size2D(val width: Float = 0f, val height: Float = 0f)
+
+/**
  * Absolute or parent-relative bounding coordinates computed by the box model or flex layout engine.
  */
 data class ComputedBoxBounds(
@@ -64,6 +74,28 @@ data class ComputedBoxBounds(
     val top: Float = 0f,
     val width: Float = 0f,
     val height: Float = 0f
+) {
+    val size: Size2D get() = Size2D(width, height)
+    val position: Point2D get() = Point2D(left, top)
+    val right: Float get() = left + width
+    val bottom: Float get() = top + height
+    val centerX: Float get() = left + width / 2f
+    val centerY: Float get() = top + height / 2f
+}
+
+/**
+ * Geometric bounding model distinguishing layout bounds from visual bounds
+ * (which include effect outsets from shadows, glow, and blur).
+ */
+data class VisualBounds(
+    val layoutBounds: ComputedBoxBounds,
+    val effectOutsets: InsetRect = InsetRect(),
+    val visualBounds: ComputedBoxBounds = ComputedBoxBounds(
+        left = layoutBounds.left - effectOutsets.left,
+        top = layoutBounds.top - effectOutsets.top,
+        width = layoutBounds.width + effectOutsets.left + effectOutsets.right,
+        height = layoutBounds.height + effectOutsets.top + effectOutsets.bottom
+    )
 )
 
 /**

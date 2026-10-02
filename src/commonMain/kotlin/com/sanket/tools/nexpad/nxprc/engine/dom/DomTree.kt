@@ -18,6 +18,11 @@ class DomNode(
     companion object {
         private val counter = java.util.concurrent.atomic.AtomicInteger(0)
         private fun nextNodeIndex(): Int = counter.incrementAndGet()
+
+        /** Resets the node index counter to 0 for deterministic testing and snapshotting. */
+        fun resetNodeIndexCounterForTesting() {
+            counter.set(0)
+        }
     }
 
     fun findFirst(predicate: (DomNode) -> Boolean): DomNode? {
@@ -65,18 +70,60 @@ class DomNode(
         paintServers: Map<String, com.sanket.tools.nexpad.nxprc.FillBrush> = emptyMap()
     ): List<com.sanket.tools.nexpad.nxprc.engine.parsers.SvgShapeElement> {
         val shapes = mutableListOf<com.sanket.tools.nexpad.nxprc.engine.parsers.SvgShapeElement>()
-        fun recurse(node: DomNode) {
+
+        // 1. Calculate root SVG viewBox normalization matrix if applicable
+        val vbAttr = if (tag.equals("svg", ignoreCase = true)) attributes["viewBox"] else null
+        val vbMatrix = if (!vbAttr.isNullOrBlank()) {
+            val nums = com.sanket.tools.nexpad.nxprc.engine.parsers.ColorPattern.DELIMITER
+                .split(vbAttr.trim())
+                .filter { it.isNotEmpty() }
+                .mapNotNull { it.toFloatOrNull() }
+            if (nums.size == 4 && nums[2] > 0.001f && nums[3] > 0.001f) {
+                val minX = nums[0]
+                val minY = nums[1]
+                val vbW = nums[2]
+                val vbH = nums[3]
+                if (minX != 0f || minY != 0f || vbW != 100f || vbH != 100f) {
+                    val sx = 100f / vbW
+                    val sy = 100f / vbH
+                    com.sanket.tools.nexpad.nxprc.engine.parsers.AffineMatrix2D(
+                        a = sx, b = 0f, c = 0f, d = sy, e = -minX * sx, f = -minY * sy
+                    )
+                } else {
+                    com.sanket.tools.nexpad.nxprc.engine.parsers.AffineMatrix2D.IDENTITY
+                }
+            } else {
+                com.sanket.tools.nexpad.nxprc.engine.parsers.AffineMatrix2D.IDENTITY
+            }
+        } else {
+            com.sanket.tools.nexpad.nxprc.engine.parsers.AffineMatrix2D.IDENTITY
+        }
+
+        fun recurse(node: DomNode, currentMatrix: com.sanket.tools.nexpad.nxprc.engine.parsers.AffineMatrix2D) {
             if (node.tag.equals("defs", ignoreCase = true)) return
 
-            val path = com.sanket.tools.nexpad.nxprc.engine.parsers.SvgGeometryParser.toPathData(node)
-            if (!path.isNullOrBlank()) {
+            // Compute cumulative transform from attributes or inline styling
+            val nodeTransformStr = node.attributes["transform"] ?: node.inlineStyles["transform"]
+            val nodeMatrix = if (!nodeTransformStr.isNullOrBlank()) {
+                currentMatrix.multiply(com.sanket.tools.nexpad.nxprc.engine.parsers.AffineMatrix2D.parseTransform(nodeTransformStr))
+            } else {
+                currentMatrix
+            }
+
+            val rawPath = com.sanket.tools.nexpad.nxprc.engine.parsers.SvgGeometryParser.toPathData(node)
+            if (!rawPath.isNullOrBlank()) {
+                val finalPath = if (!nodeMatrix.isIdentity) {
+                    com.sanket.tools.nexpad.nxprc.engine.parsers.SvgGeometryParser.transformPathData(rawPath, nodeMatrix)
+                } else {
+                    rawPath
+                }
                 val fill = com.sanket.tools.nexpad.nxprc.engine.parsers.SvgGeometryParser.parseFill(node, stylesheet, paintServers)
                 val stroke = com.sanket.tools.nexpad.nxprc.engine.parsers.SvgGeometryParser.parseStroke(node, stylesheet, paintServers)
-                shapes.add(com.sanket.tools.nexpad.nxprc.engine.parsers.SvgShapeElement(path, fill, stroke))
+                shapes.add(com.sanket.tools.nexpad.nxprc.engine.parsers.SvgShapeElement(finalPath, fill, stroke))
             }
-            node.children.forEach { recurse(it) }
+            node.children.forEach { recurse(it, nodeMatrix) }
         }
-        recurse(this)
+        recurse(this, vbMatrix)
         return shapes
     }
 }

@@ -1,565 +1,185 @@
 package com.sanket.tools.nexpad.category
 
 /**
- * Single Source of Truth for all Gamepad Controller Categories and Sub-Categories.
+ * Single Source of Truth facade over [ControlKey] / [CategoryType].
  *
- * Centralizes all dimensions, color accents, naming conventions, AI prompt hints,
- * and key mappings across both Android (`NEXPAD`) and Desktop (`NEXPADDesktop`).
+ * All button metadata (dimensions, colors, aliases, icons, prompt hints...) now lives
+ * declaratively on the enums themselves in CategoryModels.kt. This object holds none of it —
+ * it only exposes convenient, backward-compatible query functions to the rest of the app
+ * (Android `NEXPAD` + Desktop `NEXPADDesktop`), so existing call sites don't need to change.
  */
 object CategoryManager {
 
-    private val ABXY_CATEGORY = CategoryDefinition(
-        type = CategoryType.ABXY,
-        id = "ABXY",
-        title = "ABXY",
-        emoji = "🎮",
-        symbol = CategorySymbol.GAMEPAD,
-        isGroupCluster = false,
-        description = "Action button cluster for primary combat and interaction.",
-        controls = listOf(
-            SubCategoryDefinition(
-                key = "A",
-                label = "A Button",
-                defaultName = "Action A Button",
-                defaultId = "rc.action_a",
-                categoryType = CategoryType.ABXY,
-                componentType = ComponentType.BUTTON,
-                defaultWidthDp = 96,
-                defaultHeightDp = 96,
-                accentColorArgb = 0xFF4ADE80L, // Neon Green
-                description = "Primary confirmation / jump button.",
-                emoji = "🅰️",
-                symbol = CategorySymbol.GAMEPAD,
-                promptHint = "Free silhouette, distinct tactile depth, glossy central core with high-contrast glyph."
-            ),
-            SubCategoryDefinition(
-                key = "B",
-                label = "B Button",
-                defaultName = "Action B Button",
-                defaultId = "rc.action_b",
-                categoryType = CategoryType.ABXY,
-                componentType = ComponentType.BUTTON,
-                defaultWidthDp = 96,
-                defaultHeightDp = 96,
-                accentColorArgb = 0xFFF87171L, // Neon Red
-                description = "Secondary cancellation / evade button.",
-                emoji = "🅱️",
-                symbol = CategorySymbol.GAMEPAD,
-                promptHint = "Free silhouette, aggressive beveling, intense crimson accenting."
-            ),
-            SubCategoryDefinition(
-                key = "X",
-                label = "X Button",
-                defaultName = "Action X Button",
-                defaultId = "rc.action_x",
-                categoryType = CategoryType.ABXY,
-                componentType = ComponentType.BUTTON,
-                defaultWidthDp = 96,
-                defaultHeightDp = 96,
-                accentColorArgb = 0xFF60A5FAL, // Neon Blue
-                description = "Tertiary light attack / reload button.",
-                emoji = "✖️",
-                symbol = CategorySymbol.GAMEPAD,
-                promptHint = "Free silhouette, energetic cyan/blue glow, crisp industrial styling."
-            ),
-            SubCategoryDefinition(
-                key = "Y",
-                label = "Y Button",
-                defaultName = "Action Y Button",
-                defaultId = "rc.action_y",
-                categoryType = CategoryType.ABXY,
-                componentType = ComponentType.BUTTON,
-                defaultWidthDp = 96,
-                defaultHeightDp = 96,
-                accentColorArgb = 0xFFFBBF24L, // Neon Yellow / Amber
-                description = "Quaternary heavy attack / special button.",
-                emoji = "🆈",
-                symbol = CategorySymbol.GAMEPAD,
-                promptHint = "Free silhouette, luminous amber highlights, polished top chamfer."
-            )
-        )
+    private val CATEGORIES: List<CategoryDefinition> =
+        CategoryType.entries.map { type -> CategoryDefinition(type = type, controls = ControlKey.of(type)) }
+
+    private val CATEGORIES_BY_ID: Map<String, CategoryDefinition> =
+        CATEGORIES.associateBy { it.id.uppercase() }
+
+    private val CATEGORIES_BY_TYPE: Map<CategoryType, CategoryDefinition> =
+        CATEGORIES.associateBy { it.type }
+
+    /** Fallback dimensions when a bare category (not an individual control) is asked for size. */
+    private val CATEGORY_FALLBACK_DIMENS: Map<CategoryType, Pair<Int, Int>> = mapOf(
+        CategoryType.DPAD to (140 to 140),
+        CategoryType.STICKS to (130 to 130),
+        CategoryType.ABXY to (160 to 160),
+        CategoryType.TRIGGERS to (110 to 140),
+        CategoryType.BUMPERS to (120 to 60),
+        CategoryType.SYSTEM to (70 to 70),
+        CategoryType.MACROS to (72 to 72)
     )
 
-    private val DPAD_CATEGORY = CategoryDefinition(
-        type = CategoryType.DPAD,
-        id = "DPAD",
-        title = "D-Pad",
-        emoji = "🧭",
-        symbol = CategorySymbol.DPAD,
-        isGroupCluster = false,
-        description = "Directional navigation cardinal buttons.",
-        aliasKeys = setOf("DPAD", "CROSS"),
-        controls = listOf(
-            SubCategoryDefinition(
-                key = "UP",
-                label = "D-Pad Up",
-                defaultName = "Directional Up",
-                defaultId = "rc.dpad_up",
-                categoryType = CategoryType.DPAD,
-                componentType = ComponentType.DPAD,
-                defaultWidthDp = 80,
-                defaultHeightDp = 80,
-                accentColorArgb = 0xFF22D3EEL,
-                description = "Individual upward directional button.",
-                emoji = "⬆️",
-                symbol = CategorySymbol.DPAD,
-                promptHint = "North-facing wedge or directional arrowhead, upward gradient highlight."
-            ),
-            SubCategoryDefinition(
-                key = "DOWN",
-                label = "D-Pad Down",
-                defaultName = "Directional Down",
-                defaultId = "rc.dpad_down",
-                categoryType = CategoryType.DPAD,
-                componentType = ComponentType.DPAD,
-                defaultWidthDp = 80,
-                defaultHeightDp = 80,
-                accentColorArgb = 0xFF22D3EEL,
-                description = "Individual downward directional button.",
-                emoji = "⬇️",
-                symbol = CategorySymbol.DPAD,
-                promptHint = "South-facing wedge or directional arrowhead, bottom shadow drop."
-            ),
-            SubCategoryDefinition(
-                key = "LEFT",
-                label = "D-Pad Left",
-                defaultName = "Directional Left",
-                defaultId = "rc.dpad_left",
-                categoryType = CategoryType.DPAD,
-                componentType = ComponentType.DPAD,
-                defaultWidthDp = 80,
-                defaultHeightDp = 80,
-                accentColorArgb = 0xFF22D3EEL,
-                description = "Individual leftward directional button.",
-                emoji = "⬅️",
-                symbol = CategorySymbol.DPAD,
-                promptHint = "West-facing wedge or directional arrowhead, left rim highlight."
-            ),
-            SubCategoryDefinition(
-                key = "RIGHT",
-                label = "D-Pad Right",
-                defaultName = "Directional Right",
-                defaultId = "rc.dpad_right",
-                categoryType = CategoryType.DPAD,
-                componentType = ComponentType.DPAD,
-                defaultWidthDp = 80,
-                defaultHeightDp = 80,
-                accentColorArgb = 0xFF22D3EEL,
-                description = "Individual rightward directional button.",
-                emoji = "➡️",
-                symbol = CategorySymbol.DPAD,
-                promptHint = "East-facing wedge or directional arrowhead, right rim highlight."
-            )
-        )
-    )
+    /** Returns all registered top-level controller categories. */
+    fun getAllCategories(): List<CategoryDefinition> = CATEGORIES
 
-    private val TRIGGERS_CATEGORY = CategoryDefinition(
-        type = CategoryType.TRIGGERS,
-        id = "TRIGGERS",
-        title = "Triggers",
-        emoji = "🎯",
-        symbol = CategorySymbol.TRIGGER,
-        isGroupCluster = false,
-        description = "Analog linear pressure triggers with progressive deflection.",
-        controls = listOf(
-            SubCategoryDefinition(
-                key = "LT",
-                label = "Left Trigger",
-                defaultName = "Analog Left Trigger",
-                defaultId = "rc.trigger_lt",
-                categoryType = CategoryType.TRIGGERS,
-                componentType = ComponentType.TRIGGER,
-                defaultWidthDp = 110,
-                defaultHeightDp = 140,
-                accentColorArgb = 0xFFA855F7L, // Neon Purple
-                description = "Left progressive analog trigger (aim / brake).",
-                emoji = "🎯",
-                symbol = CategorySymbol.TRIGGER,
-                promptHint = "Elongated trigger paddle, progressive pressure glow indicator, mechanical ribbing."
-            ),
-            SubCategoryDefinition(
-                key = "RT",
-                label = "Right Trigger",
-                defaultName = "Analog Right Trigger",
-                defaultId = "rc.trigger_rt",
-                categoryType = CategoryType.TRIGGERS,
-                componentType = ComponentType.TRIGGER,
-                defaultWidthDp = 110,
-                defaultHeightDp = 140,
-                accentColorArgb = 0xFFA855F7L,
-                description = "Right progressive analog trigger (fire / accelerate).",
-                emoji = "🎯",
-                symbol = CategorySymbol.TRIGGER,
-                promptHint = "Elongated trigger paddle, progressive pressure glow indicator, tactile rear notch."
-            )
-        )
-    )
+    /** Returns every individual control across all categories. */
+    fun getAllControls(): List<ControlKey> = ControlKey.entries
 
-    private val BUMPERS_CATEGORY = CategoryDefinition(
-        type = CategoryType.BUMPERS,
-        id = "BUMPERS",
-        title = "Bumpers",
-        emoji = "🛡️",
-        symbol = CategorySymbol.BUMPER,
-        isGroupCluster = false,
-        description = "Curved digital shoulder bumpers with micro-switch click.",
-        controls = listOf(
-            SubCategoryDefinition(
-                key = "LB",
-                label = "Left Bumper",
-                defaultName = "Shoulder Left Bumper",
-                defaultId = "rc.bumper_lb",
-                categoryType = CategoryType.BUMPERS,
-                componentType = ComponentType.BUMPER,
-                defaultWidthDp = 120,
-                defaultHeightDp = 60,
-                accentColorArgb = 0xFF38BDF8L, // Sky Blue
-                description = "Left digital shoulder bumper.",
-                emoji = "🛡️",
-                symbol = CategorySymbol.BUMPER,
-                promptHint = "Horizontal ergonomic pill/capsule curve, top edge metallic reflection, tactile microswitch response."
-            ),
-            SubCategoryDefinition(
-                key = "RB",
-                label = "Right Bumper",
-                defaultName = "Shoulder Right Bumper",
-                defaultId = "rc.bumper_rb",
-                categoryType = CategoryType.BUMPERS,
-                componentType = ComponentType.BUMPER,
-                defaultWidthDp = 120,
-                defaultHeightDp = 60,
-                accentColorArgb = 0xFF38BDF8L,
-                description = "Right digital shoulder bumper.",
-                emoji = "🛡️",
-                symbol = CategorySymbol.BUMPER,
-                promptHint = "Horizontal ergonomic pill/capsule curve, top edge metallic reflection, tactile microswitch response."
-            )
-        )
-    )
+    /** Get a category by its [CategoryType]. */
+    fun getCategory(type: CategoryType): CategoryDefinition = CATEGORIES_BY_TYPE.getValue(type)
 
-    private val STICKS_CATEGORY = CategoryDefinition(
-        type = CategoryType.STICKS,
-        id = "STICKS",
-        title = "Sticks",
-        emoji = "🕹️",
-        symbol = CategorySymbol.STICK,
-        isGroupCluster = false,
-        description = "Dual 360-degree analog joysticks with concave thumb grip.",
-        controls = listOf(
-            SubCategoryDefinition(
-                key = "LS",
-                label = "Left Stick",
-                defaultName = "Left Analog Thumbstick",
-                defaultId = "rc.stick_ls",
-                categoryType = CategoryType.STICKS,
-                componentType = ComponentType.JOYSTICK,
-                defaultWidthDp = 130,
-                defaultHeightDp = 130,
-                accentColorArgb = 0xFF34D399L, // Neon Emerald
-                description = "Left 360° analog thumbstick (movement).",
-                emoji = "🕹️",
-                symbol = CategorySymbol.STICK,
-                promptHint = "Stationary spherical/radial gimbal base with inner socket shadow + floating 360-degree deflection thumb cap with concave grip and knurled ring."
-            ),
-            SubCategoryDefinition(
-                key = "RS",
-                label = "Right Stick",
-                defaultName = "Right Analog Thumbstick",
-                defaultId = "rc.stick_rs",
-                categoryType = CategoryType.STICKS,
-                componentType = ComponentType.JOYSTICK,
-                defaultWidthDp = 130,
-                defaultHeightDp = 130,
-                accentColorArgb = 0xFF34D399L,
-                description = "Right 360° analog thumbstick (camera/aim).",
-                emoji = "🕹️",
-                symbol = CategorySymbol.STICK,
-                promptHint = "Stationary spherical/radial gimbal base with inner socket shadow + floating 360-degree deflection thumb cap with concave grip and knurled ring."
-            )
-        )
-    )
-
-    private val SYSTEM_CATEGORY = CategoryDefinition(
-        type = CategoryType.SYSTEM,
-        id = "SYSTEM",
-        title = "System",
-        emoji = "⚙️",
-        symbol = CategorySymbol.SYSTEM,
-        isGroupCluster = false,
-        description = "System, navigation, utility, and special function buttons.",
-        aliasKeys = setOf("VIEW", "MENU", "SELECT", "HOME", "XBOX"),
-        controls = listOf(
-            SubCategoryDefinition(
-                key = "START",
-                label = "Menu / Start",
-                defaultName = "System Menu Button",
-                defaultId = "rc.sys_start",
-                categoryType = CategoryType.SYSTEM,
-                componentType = ComponentType.SYSTEM,
-                defaultWidthDp = 70,
-                defaultHeightDp = 70,
-                accentColorArgb = 0xFF94A3B8L, // Slate Silver
-                description = "Pause / Options / Start button.",
-                emoji = "☰",
-                symbol = CategorySymbol.SYSTEM,
-                promptHint = "Compact pill or small disc with hamburger lines or forward glyph."
-            ),
-            SubCategoryDefinition(
-                key = "BACK",
-                label = "View / Back",
-                defaultName = "System View Button",
-                defaultId = "rc.sys_back",
-                categoryType = CategoryType.SYSTEM,
-                componentType = ComponentType.SYSTEM,
-                defaultWidthDp = 70,
-                defaultHeightDp = 70,
-                accentColorArgb = 0xFF94A3B8L,
-                description = "Map / Back / Select button.",
-                emoji = "⧉",
-                symbol = CategorySymbol.SYSTEM,
-                promptHint = "Compact pill or small disc with overlapping squares or rewind glyph."
-            ),
-            SubCategoryDefinition(
-                key = "GUIDE",
-                label = "Nexus Guide",
-                defaultName = "Controller Center Guide",
-                defaultId = "rc.sys_guide",
-                categoryType = CategoryType.SYSTEM,
-                componentType = ComponentType.SYSTEM,
-                defaultWidthDp = 84,
-                defaultHeightDp = 84,
-                accentColorArgb = 0xFFF59E0BL, // Nexus Amber
-                description = "Home / Xbox / PlayStation central guide button.",
-                emoji = "⨂",
-                symbol = CategorySymbol.HOME,
-                promptHint = "Large luminous orb or badge, glowing center insignia, prestigious bevel."
-            ),
-            SubCategoryDefinition(
-                key = "SHARE",
-                label = "Share / Capture",
-                defaultName = "System Share Button",
-                defaultId = "rc.sys_share",
-                categoryType = CategoryType.SYSTEM,
-                componentType = ComponentType.SYSTEM,
-                defaultWidthDp = 70,
-                defaultHeightDp = 70,
-                accentColorArgb = 0xFF94A3B8L,
-                description = "Capture screenshot or video clip.",
-                emoji = "📤",
-                symbol = CategorySymbol.SYSTEM,
-                promptHint = "Minimalist utility button with broadcast or share glyph."
-            ),
-            SubCategoryDefinition(
-                key = "TURBO",
-                label = "Turbo",
-                defaultName = "Rapid Turbo Trigger",
-                defaultId = "rc.sys_turbo",
-                categoryType = CategoryType.SYSTEM,
-                componentType = ComponentType.SYSTEM,
-                defaultWidthDp = 70,
-                defaultHeightDp = 70,
-                accentColorArgb = 0xFFEC4899L, // Pink
-                description = "Hardware rapid-fire turbo switch.",
-                emoji = "⚡",
-                symbol = CategorySymbol.SYSTEM,
-                promptHint = "Lightning insignia with energetic magenta backlighting."
-            ),
-            SubCategoryDefinition(
-                key = "PROFILE",
-                label = "Profile",
-                defaultName = "Profile Switch Button",
-                defaultId = "rc.sys_profile",
-                categoryType = CategoryType.SYSTEM,
-                componentType = ComponentType.SYSTEM,
-                defaultWidthDp = 70,
-                defaultHeightDp = 70,
-                accentColorArgb = 0xFF8B5CF6L, // Violet
-                description = "Toggle between custom layout profiles.",
-                emoji = "👤",
-                symbol = CategorySymbol.SYSTEM,
-                promptHint = "Switch/cycle icon with multi-state indicator LEDs."
-            )
-        )
-    )
-
-    private val MACROS_CATEGORY = CategoryDefinition(
-        type = CategoryType.MACROS,
-        id = "MACROS",
-        title = "Macros",
-        emoji = "⚡",
-        symbol = CategorySymbol.MACRO,
-        isGroupCluster = false,
-        description = "Rear programmable paddles and custom macro actuators.",
-        controls = listOf(
-            SubCategoryDefinition(
-                key = "M1",
-                label = "Paddle M1",
-                defaultName = "Paddle M1 Switch",
-                defaultId = "rc.macro_m1",
-                categoryType = CategoryType.MACROS,
-                componentType = ComponentType.BUTTON,
-                defaultWidthDp = 72,
-                defaultHeightDp = 72,
-                accentColorArgb = 0xFFF59E0BL,
-                description = "Rear upper-left programmable paddle.",
-                emoji = "⚡",
-                symbol = CategorySymbol.MACRO,
-                promptHint = "Ergonomic angled wing or rear paddle shape with high-tactile snap."
-            ),
-            SubCategoryDefinition(
-                key = "M2",
-                label = "Paddle M2",
-                defaultName = "Paddle M2 Switch",
-                defaultId = "rc.macro_m2",
-                categoryType = CategoryType.MACROS,
-                componentType = ComponentType.BUTTON,
-                defaultWidthDp = 72,
-                defaultHeightDp = 72,
-                accentColorArgb = 0xFFF59E0BL,
-                description = "Rear upper-right programmable paddle.",
-                emoji = "⚡",
-                symbol = CategorySymbol.MACRO,
-                promptHint = "Ergonomic angled wing or rear paddle shape with high-tactile snap."
-            ),
-            SubCategoryDefinition(
-                key = "M3",
-                label = "Paddle M3",
-                defaultName = "Paddle M3 Switch",
-                defaultId = "rc.macro_m3",
-                categoryType = CategoryType.MACROS,
-                componentType = ComponentType.BUTTON,
-                defaultWidthDp = 72,
-                defaultHeightDp = 72,
-                accentColorArgb = 0xFFF59E0BL,
-                description = "Rear lower-left programmable paddle.",
-                emoji = "⚡",
-                symbol = CategorySymbol.MACRO,
-                promptHint = "Ergonomic angled wing or rear paddle shape with high-tactile snap."
-            ),
-            SubCategoryDefinition(
-                key = "M4",
-                label = "Paddle M4",
-                defaultName = "Paddle M4 Switch",
-                defaultId = "rc.macro_m4",
-                categoryType = CategoryType.MACROS,
-                componentType = ComponentType.BUTTON,
-                defaultWidthDp = 72,
-                defaultHeightDp = 72,
-                accentColorArgb = 0xFFF59E0BL,
-                description = "Rear lower-right programmable paddle.",
-                emoji = "⚡",
-                symbol = CategorySymbol.MACRO,
-                promptHint = "Ergonomic angled wing or rear paddle shape with high-tactile snap."
-            )
-        )
-    )
-
-    private val ALL_CATEGORIES = listOf(
-        ABXY_CATEGORY,
-        DPAD_CATEGORY,
-        TRIGGERS_CATEGORY,
-        BUMPERS_CATEGORY,
-        STICKS_CATEGORY,
-        SYSTEM_CATEGORY,
-        MACROS_CATEGORY
-    )
-
-    private val CATEGORIES_BY_ID = ALL_CATEGORIES.associateBy { it.id.uppercase() }
-    private val CATEGORIES_BY_TYPE = ALL_CATEGORIES.associateBy { it.type }
-
-    private val CONTROLS_BY_KEY: Map<String, SubCategoryDefinition> = buildMap {
-        ALL_CATEGORIES.forEach { cat ->
-            cat.controls.forEach { ctrl ->
-                put(ctrl.key.uppercase(), ctrl)
-            }
-        }
-        // Common aliases
-        val start = get("START")
-        if (start != null) {
-            put("MENU", start)
-        }
-        val back = get("BACK")
-        if (back != null) {
-            put("VIEW", back)
-            put("SELECT", back)
-        }
-        val guide = get("GUIDE")
-        if (guide != null) {
-            put("XBOX", guide)
-            put("HOME", guide)
-        }
+    /** Get a category by ID or alias (case-insensitive, e.g. "ABXY", "BUTTON", "TRIGGER", "TRIGGERS", "STICKS"). */
+    fun getCategory(id: String): CategoryDefinition? {
+        CATEGORIES_BY_ID[id.uppercase()]?.let { return it }
+        val resolvedType = CategoryType.fromIdentifier(id) ?: return null
+        return CATEGORIES_BY_TYPE[resolvedType]
     }
 
-    /**
-     * Returns all registered top-level controller categories.
-     */
-    fun getAllCategories(): List<CategoryDefinition> = ALL_CATEGORIES
+    /** Find a control by key or alias (case-insensitive, e.g. "A", "LT", "L2", "DPAD", "START"). */
+    fun getControl(key: String): ControlKey? = ControlKey.fromIdentifier(key)
 
     /**
-     * Get a category by its CategoryType.
+     * Dynamically resolves any arbitrary input identifier to its canonical [ControlKey].
+     * Supports keys, aliases, default component IDs, builtin IDs, and human labels.
      */
-    fun getCategory(type: CategoryType): CategoryDefinition =
-        CATEGORIES_BY_TYPE[type] ?: ABXY_CATEGORY
+    fun resolveControl(identifier: String?): ControlKey? = ControlKey.fromIdentifier(identifier)
 
-    /**
-     * Get a category by ID (case-insensitive).
-     */
-    fun getCategory(id: String): CategoryDefinition? =
-        CATEGORIES_BY_ID[id.uppercase()]
-
-    /**
-     * Find a specific control by key (case-insensitive, e.g. "A", "LT", "LS", "DPAD", "START").
-     */
-    fun getControl(key: String): SubCategoryDefinition? =
-        CONTROLS_BY_KEY[key.uppercase()]
-
-    /**
-     * Find the parent category for a given control key.
-     */
+    /** Find the parent category for a given control key, alias, or category identifier. */
     fun findCategoryForControl(key: String): CategoryDefinition? {
-        val ctrl = getControl(key) ?: return null
-        return CATEGORIES_BY_TYPE[ctrl.categoryType]
+        getControl(key)?.let { return CATEGORIES_BY_TYPE[it.categoryType] }
+        return getCategory(key)
     }
 
-    /**
-     * Returns all controls for a given category ID (e.g. "ABXY" -> A, B, X, Y).
-     */
-    fun getControlsForCategory(categoryId: String): List<SubCategoryDefinition> =
+    /** Returns all controls for a given category ID or alias (e.g. "ABXY" or "BUTTON" -> A, B, X, Y). */
+    fun getControlsForCategory(categoryId: String): List<ControlKey> =
         getCategory(categoryId)?.controls ?: emptyList()
 
-    /**
-     * Resolves the default dimensions (widthDp, heightDp) for a given control key.
-     */
+    /** Resolves the default dimensions (widthDp, heightDp) for a given control key or category id. */
     fun resolveDefaultDimensions(key: String): Pair<Int, Int> {
-        val ctrl = getControl(key)
-        return if (ctrl != null) {
-            Pair(ctrl.defaultWidthDp, ctrl.defaultHeightDp)
-        } else {
-            Pair(96, 96)
-        }
+        getControl(key)?.let { return it.defaultWidthDp to it.defaultHeightDp }
+        getCategory(key)?.let { return CATEGORY_FALLBACK_DIMENS[it.type] ?: (96 to 96) }
+        return 96 to 96
     }
 
     /**
-     * Get icon emoji for a control key (e.g. "A" -> "🅰️", "LT" -> "🎯").
+     * Resolves the single intrinsic maximum dimension (in dp) for scaling calculations.
+     * Centralized single source of truth for Button Studio, HUD, and Canvas preview rendering.
      */
+    fun resolveIntrinsicMaxDim(key: String, customWidthDp: Int = 0, customHeightDp: Int = 0): Float {
+        if (customWidthDp > 0 && customHeightDp > 0) {
+            return maxOf(customWidthDp, customHeightDp).toFloat()
+        }
+        val (w, h) = resolveDefaultDimensions(key)
+        return maxOf(w, h, 1).toFloat()
+    }
+
+    /** Get icon emoji for a control key (e.g. "A" -> "🅰️", "LT" -> "🎯"). */
     fun getIconEmoji(key: String): String =
         getControl(key)?.emoji ?: findCategoryForControl(key)?.emoji ?: "🎮"
 
-    /**
-     * Get CategorySymbol for a control key (e.g. "A" -> CategorySymbol.GAMEPAD, "LT" -> CategorySymbol.TRIGGER).
-     */
+    /** Get [CategorySymbol] for a control key. */
     fun getIconSymbol(key: String): CategorySymbol =
         getControl(key)?.symbol ?: findCategoryForControl(key)?.symbol ?: CategorySymbol.GAMEPAD
 
-    /**
-     * Get icon name for a control key (e.g. "SportsEsports", "Tune", "ControlCamera").
-     */
-    fun getIconName(key: String): String =
-        getIconSymbol(key).iconName
+    /** Get icon name for a control key (e.g. "SportsEsports", "Tune", "ControlCamera"). */
+    fun getIconName(key: String): String = getIconSymbol(key).iconName
+
+    /** Get standard SVG path data for a control key. */
+    fun getIconSvgPath(key: String): String = getIconSymbol(key).svgPath
 
     /**
-     * Get standard SVG path data for a control key.
+     * Resolves the button face label for a canonical [ControlKey] or identifier
+     * according to the requested [ControllerLabelStyle] (Xbox vs PlayStation).
      */
-    fun getIconSvgPath(key: String): String =
-        getIconSymbol(key).svgPath
+    fun getLabelForStyle(key: String, style: ControllerLabelStyle): String {
+        val canonical = ControlKey.fromIdentifier(key) ?: return key
+        return when (style) {
+            ControllerLabelStyle.XBOX -> when (canonical) {
+                ControlKey.A -> "A"
+                ControlKey.B -> "B"
+                ControlKey.X -> "X"
+                ControlKey.Y -> "Y"
+                ControlKey.LB -> "LB"
+                ControlKey.RB -> "RB"
+                ControlKey.LT -> "LT"
+                ControlKey.RT -> "RT"
+                ControlKey.LSB -> "LSB"
+                ControlKey.RSB -> "RSB"
+                ControlKey.LS -> "LS"
+                ControlKey.RS -> "RS"
+                else -> canonical.key
+            }
+            ControllerLabelStyle.PLAYSTATION -> when (canonical) {
+                ControlKey.A -> "✕"
+                ControlKey.B -> "○"
+                ControlKey.X -> "□"
+                ControlKey.Y -> "△"
+                ControlKey.LB -> "L1"
+                ControlKey.RB -> "R1"
+                ControlKey.LT -> "L2"
+                ControlKey.RT -> "R2"
+                ControlKey.LSB -> "L3"
+                ControlKey.RSB -> "R3"
+                ControlKey.LS -> "LS"
+                ControlKey.RS -> "RS"
+                else -> canonical.key
+            }
+        }
+    }
+
+    /**
+     * Resolves text for a button glyph or text layer given the active [ControllerLabelStyle].
+     * - If [text] matches a standard controller label/alias or console glyph, it translates it.
+     * - If [text] is a custom gameplay verb (e.g. "ATTACK", "DASH", "FIRE", "JUMP"), it is preserved untouched.
+     */
+    fun resolveGlyphForStyle(text: String, defaultControl: String? = null, style: ControllerLabelStyle): String {
+        val trimmed = text.trim()
+        if (trimmed.isEmpty()) return text
+
+        // Check if text itself is a known standard controller identifier
+        val ctrlFromText = ControlKey.fromIdentifier(trimmed)
+        if (ctrlFromText != null) {
+            return getLabelForStyle(ctrlFromText.key, style)
+        }
+
+        // Check against known PS symbols directly
+        when (trimmed) {
+            "✕", "×" -> return if (style == ControllerLabelStyle.PLAYSTATION) "✕" else "A"
+            "○" -> return if (style == ControllerLabelStyle.PLAYSTATION) "○" else "B"
+            "□" -> return if (style == ControllerLabelStyle.PLAYSTATION) "□" else "X"
+            "△" -> return if (style == ControllerLabelStyle.PLAYSTATION) "△" else "Y"
+            "L1" -> return if (style == ControllerLabelStyle.PLAYSTATION) "L1" else "LB"
+            "R1" -> return if (style == ControllerLabelStyle.PLAYSTATION) "R1" else "RB"
+            "L2" -> return if (style == ControllerLabelStyle.PLAYSTATION) "L2" else "LT"
+            "R2" -> return if (style == ControllerLabelStyle.PLAYSTATION) "R2" else "RT"
+            "L3" -> return if (style == ControllerLabelStyle.PLAYSTATION) "L3" else "LSB"
+            "R3" -> return if (style == ControllerLabelStyle.PLAYSTATION) "R3" else "RSB"
+        }
+
+        // If defaultControl is provided and text matches defaultControl's standard label in either style
+        if (defaultControl != null) {
+            val ctrlFromDef = ControlKey.fromIdentifier(defaultControl)
+            if (ctrlFromDef != null) {
+                val xboxLabel = getLabelForStyle(ctrlFromDef.key, ControllerLabelStyle.XBOX)
+                val psLabel = getLabelForStyle(ctrlFromDef.key, ControllerLabelStyle.PLAYSTATION)
+                if (trimmed.equals(xboxLabel, ignoreCase = true) || trimmed == psLabel) {
+                    return getLabelForStyle(ctrlFromDef.key, style)
+                }
+            }
+        }
+
+        // Not a standard controller label (e.g. "ATTACK", "DASH", "FIRE") -> preserve custom text!
+        return text
+    }
 }

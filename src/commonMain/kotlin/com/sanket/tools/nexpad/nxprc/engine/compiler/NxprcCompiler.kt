@@ -1,11 +1,18 @@
 package com.sanket.tools.nexpad.nxprc.engine.compiler
 
+import com.sanket.tools.nexpad.model.NexpadKeys
 import com.sanket.tools.nexpad.nxprc.*
+import com.sanket.tools.nexpad.nxprc.engine.classifier.ShapeClassifier
 import com.sanket.tools.nexpad.nxprc.engine.css.CssCascadeResolver
+import com.sanket.tools.nexpad.nxprc.engine.css.CssPropertyMap
 import com.sanket.tools.nexpad.nxprc.engine.css.CssTokenizer
+import com.sanket.tools.nexpad.nxprc.engine.css.TextAlignValue
 import com.sanket.tools.nexpad.nxprc.engine.dom.DomNode
 import com.sanket.tools.nexpad.nxprc.engine.dom.HtmlDomParser
+import com.sanket.tools.nexpad.nxprc.engine.model.SizeMetrics
+import com.sanket.tools.nexpad.nxprc.engine.stack.LayerStack
 import com.sanket.tools.nexpad.nxprc.engine.parsers.*
+
 
 /**
  * High-Level Multiplatform Compiler: Transforms HTML/CSS/SVG markup into native .nxprc documents.
@@ -18,9 +25,18 @@ object NxprcCompiler {
         html: String,
         id: String,
         name: String,
-        category: String = "BUTTON",
-        defaultControl: String = "A"
-    ): NxprcDocument {
+        category: String = NxprcCategory.BUTTON.id,
+        defaultControl: String = NexpadKeys.A
+    ): NxprcDocument = compileWithWarnings(html, id, name, category, defaultControl).document
+
+    fun compileWithWarnings(
+        html: String,
+        id: String,
+        name: String,
+        category: String = NxprcCategory.BUTTON.id,
+        defaultControl: String = NexpadKeys.A
+    ): CompileResult {
+        val warnings = CompileWarningCollector()
         val parsed = HtmlDomParser.parse(html)
         val stylesheet = CssTokenizer.parse(parsed.embeddedCss)
 
@@ -42,7 +58,9 @@ object NxprcCompiler {
 
         val autoCategory = primaryNode.attributes["data-category"]
             ?: parsed.root.attributes["data-category"]
-            ?: if (primaryNode.classNames.any { it.contains("stick") || it.contains("joy") || it.contains("thumb") }) "JOYSTICK" else category
+            ?: if (primaryNode.classNames.any { it.contains("stick") || it.contains("joy") || it.contains("thumb") }) "JOYSTICK"
+            else if (primaryNode.classNames.any { it.contains("touchpad") || it.contains("trackpad") }) "TOUCHPAD"
+            else category
 
         val autoName = primaryNode.attributes["data-name"]
             ?: parsed.root.attributes["data-name"]
@@ -59,8 +77,14 @@ object NxprcCompiler {
         val beforeStyle = style.before
         val afterStyle = style.after
 
-        val buttonWidth = GeometryParser.parsePixelOrPercent(baseProps["width"], 100f, 100f).coerceAtLeast(1f)
-        val buttonHeight = GeometryParser.parsePixelOrPercent(baseProps["height"], 100f, 100f).coerceAtLeast(1f)
+        // Scan for CSS properties the compiler cannot represent across the entire stylesheet and emit warnings
+        scanUnsupportedCssProps(baseProps, stylesheet, warnings)
+
+        val defaultSize = GeometryConstants.DEFAULT_BUTTON_SIZE
+        val rawButtonWidth = GeometryParser.parsePixelOrPercent(baseProps["width"], defaultSize, defaultSize)
+        val rawButtonHeight = GeometryParser.parsePixelOrPercent(baseProps["height"], defaultSize, defaultSize)
+        val buttonWidth = rawButtonWidth.coerceIn(NxprcDefaults.DEFAULT_MIN_SIZE_DP.toFloat(), NxprcDefaults.DEFAULT_MAX_SIZE_DP.toFloat())
+        val buttonHeight = rawButtonHeight.coerceIn(NxprcDefaults.DEFAULT_MIN_SIZE_DP.toFloat(), NxprcDefaults.DEFAULT_MAX_SIZE_DP.toFloat())
         resolvedNodeBounds[primaryNode] = ComputedBoxBounds(0f, 0f, buttonWidth, buttonHeight)
         val baseOpacity = baseProps["opacity"]?.toFloatOrNull() ?: 1.0f
         val baseFilter = FilterParser.parse(baseProps["filter"] ?: primaryNode.attributes["filter"], svgFilters)
@@ -80,16 +104,20 @@ object NxprcCompiler {
         val radii = GeometryParser.parseBorderRadius(baseProps["border-radius"], defaultSizeDp = buttonWidth)
 
         val rootClip = GeometryParser.parseClipPath(baseProps["clip-path"] ?: baseProps["-webkit-clip-path"], buttonWidth, buttonHeight)
-        val isOval = (radii.topLeft >= (buttonWidth * 0.35f) && radii.topRight >= (buttonWidth * 0.35f) &&
-                      radii.bottomRight >= (buttonWidth * 0.35f) && radii.bottomLeft >= (buttonWidth * 0.35f)) ||
-                      baseProps["border-radius"]?.contains("50%") == true
-        val shapeType = when {
-            rootClip != null -> rootClip.shapeType
-            isOval -> LayerShapeType.OVAL.name
-            else -> LayerShapeType.ROUNDED_RECT.name
-        }
-        val rootPolySides = rootClip?.polygonSides ?: 0
-        val rootPathData = rootClip?.pathData ?: ""
+
+        // ── Shape classification (replaces all inline 0.35f magic number checks) ────────────────
+        val sizeMetrics = SizeMetrics(buttonWidth, buttonHeight)
+        val rootShapeDescriptor = ShapeClassifier.classify(
+            radii           = radii,
+            metrics         = sizeMetrics,
+            borderRadiusCss = baseProps["border-radius"],
+            clipPath        = rootClip
+        )
+        val isOval       = rootShapeDescriptor is com.sanket.tools.nexpad.nxprc.engine.model.ShapeDescriptor.Oval
+        val shapeType    = rootShapeDescriptor.shapeTypeId
+        val rootPolySides = rootShapeDescriptor.polygonSides
+        val rootPathData  = rootShapeDescriptor.pathData
+
 
         val hasExplicitBezel = primaryNode.attributes["data-bezel"] == "true" ||
                 primaryNode.classNames.any { it.contains("bezel") || it.contains("socket") } ||
@@ -98,7 +126,9 @@ object NxprcCompiler {
         val rawFills = GradientParser.parseAll(
             baseProps["background"] ?: baseProps["background-color"] ?: baseProps["fill"],
             baseProps["background-position"],
-            baseProps["background-size"]
+            baseProps["background-size"],
+            boxWidth = buttonWidth,
+            boxHeight = buttonHeight
         )
         val bgColor = ColorParser.parse(baseProps["background-color"])
         val allFills = if (bgColor != null && bgColor != 0x00000000L && rawFills.none { it is FillBrush.Solid && it.color == bgColor }) {
@@ -107,16 +137,13 @@ object NxprcCompiler {
             rawFills
         }
 
-        val isBoxPrimitive = primaryNode.attributes["data-primitive"] == "box" ||
-                (!hasExplicitBezel && (allFills.size > 1 || allBoxShadows.size > 1 || rootClip != null || primaryNode.classNames.any {
-                    it.contains("box") || it.contains("card") || it.contains("panel")
-                }))
-
-        // Drop shadow / Atmospheric Glow Layer (requires blur > 0 and bright non-dark color)
-        val glowShadow = outsetShadows.firstOrNull { it.blurRadius > 0f && !ColorParser.isDark(it.color) }
+        // Atmospheric Glow Ring: requires substantial blur (>= 6dp) and visible opacity (>= 25%), not subtle highlights
+        val glowShadow = outsetShadows.firstOrNull {
+            it.blurRadius >= 6f && ((it.color shr 24) and 0xFF) >= 0x40L && !ColorParser.isDark(it.color)
+        }
         if (glowShadow != null) {
             layerCollector.addLayer(
-                5,
+                LayerStack.GLOW_RING,
                 CanvasLayer.GlowRing(glowColor = glowShadow.color, blurRadius = glowShadow.blurRadius, pulseEnabled = true)
             )
         }
@@ -131,9 +158,54 @@ object NxprcCompiler {
         val baseFilterDef = EffectsResolver.toFilterDef(baseFilter)
         val baseRotating = AnimationParser.isRotatingAnimation(stylesheet, baseProps)
 
-        var surfaceSvgNode: DomNode? = null
+        // Outer Bezel Socket Layer (only for explicit bezel/socket markup or joystick socket base)
+        if (hasExplicitBezel) {
+            val outerBezelColor = border?.color ?: 0xFF1C1D24L
+            val ringShadow = outsetShadows.firstOrNull { it.spreadRadius > 0f }
+            val strokeColor = ringShadow?.color ?: border?.color ?: 0xFF292A30L
+            val primaryDarkShadow = outsetShadows.firstOrNull { ColorParser.isDark(it.color) }?.color ?: NxprcDefaults.DEFAULT_SHADOW_COLOR
 
-        if (isBoxPrimitive) {
+            layerCollector.addLayer(
+                LayerStack.BEZEL_SOCKET,
+                CanvasLayer.BezelSocket(
+                    outerBezelColor = outerBezelColor,
+                    outerBevelStroke = strokeColor,
+                    shadowColor = primaryDarkShadow
+                )
+            )
+        }
+
+        // 3. Main Surface Background (SVG Shapes/Paths or Composited BoxLayer with multi-fills & box-shadows)
+        var surfaceSvgNode: DomNode? = null
+        val paintServers = SvgGeometryParser.extractPaintServers(primaryNode, stylesheet)
+        val directSurfaceChild = if (primaryNode.tag.equals("svg", ignoreCase = true)) {
+            primaryNode
+        } else if (allFills.isEmpty() && primaryNode.children.size == 1 && primaryNode.children[0].tag.equals("svg", ignoreCase = true)) {
+            primaryNode.children[0]
+        } else if (allFills.isEmpty()) {
+            primaryNode.children.firstOrNull { it.tag.equals("svg", ignoreCase = true) && it.classNames.any { c -> c.contains("surface") || c.contains("bg") } }
+        } else {
+            null
+        }
+
+        surfaceSvgNode = directSurfaceChild
+        val svgShapes = if (surfaceSvgNode != null) surfaceSvgNode.getAllSvgShapes(stylesheet, paintServers) else emptyList()
+
+        if (svgShapes.isNotEmpty()) {
+            svgShapes.forEachIndexed { index, shape ->
+                val resolvedFill = shape.fill ?: if (index == 0) allFills.firstOrNull() ?: FillBrush.Solid(NxprcDefaults.DEFAULT_FILL_COLOR) else FillBrush.Solid(0x00000000L)
+                val resolvedStroke = shape.stroke ?: border
+                layerCollector.addLayer(
+                    LayerStack.SURFACE,
+                    CanvasLayer.VectorPath(
+                        pathData = shape.pathData,
+                        fill = resolvedFill,
+                        stroke = resolvedStroke,
+                        isRotating = baseRotating
+                    )
+                )
+            }
+        } else {
             val rootBox = BoxLayerBuilder.buildBoxLayer(
                 shapeType = shapeType,
                 polygonSides = rootPolySides,
@@ -156,88 +228,7 @@ object NxprcCompiler {
                 fallbackFill = FillBrush.Solid(NxprcDefaults.DEFAULT_FILL_COLOR),
                 drawCacheHint = !baseRotating
             )
-            layerCollector.addLayer(10, rootBox)
-        } else {
-            // Outer Bezel Socket Layer
-            if (hasExplicitBezel) {
-                val outerBezelColor = border?.color ?: 0xFF1C1D24L
-                val ringShadow = outsetShadows.firstOrNull { it.spreadRadius > 0f }
-                val strokeColor = ringShadow?.color ?: border?.color ?: 0xFF292A30L
-                val primaryDarkShadow = outsetShadows.firstOrNull { ColorParser.isDark(it.color) }?.color ?: NxprcDefaults.DEFAULT_SHADOW_COLOR
-
-                layerCollector.addLayer(
-                    8,
-                    CanvasLayer.BezelSocket(
-                        outerBezelColor = outerBezelColor,
-                        outerBevelStroke = strokeColor,
-                        shadowColor = primaryDarkShadow
-                    )
-                )
-            }
-
-            // 3. Main Surface Background (SVG Shapes/Paths or Multi-layer Gradients)
-            val paintServers = SvgGeometryParser.extractPaintServers(primaryNode, stylesheet)
-            val directSurfaceChild = if (primaryNode.tag.equals("svg", ignoreCase = true)) {
-                primaryNode
-            } else if (allFills.isEmpty() && primaryNode.children.size == 1 && primaryNode.children[0].tag.equals("svg", ignoreCase = true)) {
-                primaryNode.children[0]
-            } else if (allFills.isEmpty()) {
-                primaryNode.children.firstOrNull { it.tag.equals("svg", ignoreCase = true) && it.classNames.any { c -> c.contains("surface") || c.contains("bg") } }
-            } else {
-                null
-            }
-
-            surfaceSvgNode = directSurfaceChild
-            val svgShapes = if (surfaceSvgNode != null) surfaceSvgNode.getAllSvgShapes(stylesheet, paintServers) else emptyList()
-
-            if (svgShapes.isNotEmpty()) {
-                svgShapes.forEachIndexed { index, shape ->
-                    val resolvedFill = shape.fill ?: if (index == 0) allFills.firstOrNull() ?: FillBrush.Solid(NxprcDefaults.DEFAULT_FILL_COLOR) else FillBrush.Solid(0x00000000L)
-                    val resolvedStroke = shape.stroke ?: border
-                    layerCollector.addLayer(
-                        10,
-                        CanvasLayer.VectorPath(
-                            pathData = shape.pathData,
-                            fill = resolvedFill,
-                            stroke = resolvedStroke,
-                            isRotating = baseRotating
-                        )
-                    )
-                }
-            } else {
-                allFills.reversed().forEachIndexed { index, fillBrush ->
-                    val shape = BoxLayerBuilder.buildGradientShape(
-                        shapeType = shapeType,
-                        cornerRadius = radii.topLeft,
-                        fill = fillBrush,
-                        stroke = if (index == allFills.size - 1) border else null,
-                        width = buttonWidth,
-                        height = buttonHeight,
-                        left = 0f,
-                        top = 0f,
-                        buttonWidth = buttonWidth,
-                        buttonHeight = buttonHeight,
-                        filterDef = baseFilterDef,
-                        opacity = baseOpacity,
-                        transform = baseTransform,
-                        boxShadows = allBoxShadows,
-                        hasMultipleFills = allFills.size > 1,
-                        drawCacheHint = !baseRotating
-                    )
-                    layerCollector.addLayer(10, shape)
-                }
-            }
-
-            // 4. Inset Shadows / Perimeter Groove
-            val afterShadows = afterStyle?.get("box-shadow")?.let { ShadowParser.parseBoxShadows(it) } ?: emptyList()
-            val afterInsets = afterShadows.filter { it.isInset }
-            val combinedInset = (insetShadows + afterInsets)
-
-            if (combinedInset.isNotEmpty()) {
-                val darkInset = combinedInset.firstOrNull { ColorParser.isDark(it.color) }?.color ?: NxprcDefaults.DEFAULT_SHADOW_COLOR
-                val lightInset = combinedInset.firstOrNull { !ColorParser.isDark(it.color) }?.color ?: 0x30FFFFFFL
-                layerCollector.addLayer(15, CanvasLayer.InnerShadow(shadowColor = darkInset, highlightColor = lightInset, strokeWidth = 3.5f))
-            }
+            layerCollector.addLayer(LayerStack.SURFACE, rootBox)
         }
 
         // Text nodes
@@ -276,19 +267,22 @@ object NxprcCompiler {
 
             val beforeRadii = GeometryParser.parseBorderRadius(beforeStyle["border-radius"], defaultSizeDp = beforeWidth)
             val beforeClip = GeometryParser.parseClipPath(beforeStyle["clip-path"] ?: beforeStyle["-webkit-clip-path"], beforeWidth, beforeHeight)
-            val isBeforeOval = beforeStyle["border-radius"]?.contains("50%") == true ||
-                (beforeRadii.topLeft >= (beforeWidth * 0.35f) && beforeRadii.topRight >= (beforeWidth * 0.35f) &&
-                 beforeRadii.bottomRight >= (beforeWidth * 0.35f) && beforeRadii.bottomLeft >= (beforeWidth * 0.35f))
-            val beforeShape = when {
-                beforeClip != null -> beforeClip.shapeType
-                isBeforeOval -> "OVAL"
-                else -> shapeType
-            }
-            val beforePolySides = beforeClip?.polygonSides ?: 0
-            val beforePolyPath = beforeClip?.pathData ?: ""
+
+            // ── ShapeClassifier replaces the inline 0.35f oval check ─────────────────────────────
+            val beforeShapeDescriptor = ShapeClassifier.classify(
+                radii           = beforeRadii,
+                width           = beforeWidth,
+                height          = beforeHeight,
+                borderRadiusCss = beforeStyle["border-radius"],
+                clipPath        = beforeClip
+            )
+            val beforeShape    = beforeShapeDescriptor.shapeTypeId.let { if (it == "ROUNDED_RECT") shapeType else it }
+            val beforePolySides = beforeShapeDescriptor.polygonSides
+            val beforePolyPath  = beforeShapeDescriptor.pathData
 
             val beforeZ = GeometryParser.parseZIndex(beforeStyle)
-            val beforeStack = 50 + beforeZ * 10
+            val beforeStack = LayerStack.beforeSlot(beforeZ)
+
 
             val beforeTransform = AnimationParser.parseTransforms(
                 beforeStyle["transform"],
@@ -299,7 +293,7 @@ object NxprcCompiler {
             val beforeShadows = beforeStyle["box-shadow"]?.let { ShadowParser.parseBoxShadows(it) } ?: emptyList()
             val beforeFilterDef = EffectsResolver.toFilterDef(beforeFilter)
 
-            if (isBoxPrimitive && (beforeBgs.isNotEmpty() || beforeBorder != null || beforeShadows.isNotEmpty())) {
+            if (beforeBgs.isNotEmpty() || beforeBorder != null || beforeShadows.isNotEmpty()) {
                 val beforeBox = BoxLayerBuilder.buildBoxLayer(
                     shapeType = beforeShape,
                     polygonSides = beforePolySides,
@@ -321,47 +315,11 @@ object NxprcCompiler {
                     drawCacheHint = true
                 )
                 layerCollector.addLayer(beforeStack, beforeBox)
-            } else {
-                beforeBgs.reversed().forEachIndexed { index, bg ->
-                    val shape = BoxLayerBuilder.buildGradientShape(
-                        shapeType = beforeShape,
-                        cornerRadius = beforeRadii.topLeft,
-                        fill = bg,
-                        stroke = if (index == beforeBgs.size - 1) beforeBorder else null,
-                        width = beforeWidth,
-                        height = beforeHeight,
-                        left = beforeLeft,
-                        top = beforeTop,
-                        buttonWidth = buttonWidth,
-                        buttonHeight = buttonHeight,
-                        filterDef = beforeFilterDef,
-                        opacity = beforeOpacity,
-                        transform = beforeTransform,
-                        boxShadows = beforeShadows,
-                        hasMultipleFills = beforeBgs.size > 1,
-                        drawCacheHint = true
-                    )
-                    layerCollector.addLayer(beforeStack, shape)
-                }
-
-                val beforeInsets = beforeShadows.filter { it.isInset }
-                if (beforeInsets.isNotEmpty() && !isBoxPrimitive) {
-                    val darkB = beforeInsets.firstOrNull { ColorParser.isDark(it.color) }?.color ?: NxprcDefaults.DEFAULT_SHADOW_COLOR
-                    val lightB = beforeInsets.firstOrNull { !ColorParser.isDark(it.color) }?.color ?: 0x30FFFFFFL
-                    layerCollector.addLayer(beforeStack + 2, CanvasLayer.InnerShadow(shadowColor = darkB, highlightColor = lightB, strokeWidth = 3.0f))
-                }
             }
         }
 
         // 5. Recursive DOM Tree Compilation
-        DomTreeCompiler.compileDomChildren(
-            parentNode = primaryNode,
-            parentWidth = buttonWidth,
-            parentHeight = buttonHeight,
-            parentGlobalX = 0f,
-            parentGlobalY = 0f,
-            isParentClipping = baseProps["overflow"] == "hidden" || rootClip != null,
-            parentStackBase = 60,
+        val compilationContext = CompilationContext(
             buttonWidth = buttonWidth,
             buttonHeight = buttonHeight,
             baseProps = baseProps,
@@ -374,6 +332,16 @@ object NxprcCompiler {
             styleCache = styleCache,
             resolvedNodeBounds = resolvedNodeBounds,
             category = autoCategory
+        )
+        DomTreeCompiler.compileDomChildren(
+            parentNode = primaryNode,
+            parentWidth = buttonWidth,
+            parentHeight = buttonHeight,
+            parentGlobalX = 0f,
+            parentGlobalY = 0f,
+            isParentClipping = baseProps["overflow"] == "hidden" || rootClip != null,
+            parentStackBase = LayerStack.CONTENT_BASE + LayerStack.CHILD_OFFSET,
+            context = compilationContext
         )
 
         // 6. ::after: Top specular arc gloss & glass reflection edge
@@ -412,23 +380,26 @@ object NxprcCompiler {
             val afterBorder = GeometryParser.parseBorder(afterStyle["border"] ?: afterStyle["border-top"], isTopOnly = isAfterTopOnly)
             val afterRadii = GeometryParser.parseBorderRadius(afterStyle["border-radius"], defaultSizeDp = afterWidth)
             val afterClip = GeometryParser.parseClipPath(afterStyle["clip-path"] ?: afterStyle["-webkit-clip-path"], afterWidth, afterHeight)
-            val isAfterOval = afterStyle["border-radius"]?.contains("50%") == true ||
-                (afterRadii.topLeft >= (afterWidth * 0.35f) && afterRadii.topRight >= (afterWidth * 0.35f) &&
-                 afterRadii.bottomRight >= (afterWidth * 0.35f) && afterRadii.bottomLeft >= (afterWidth * 0.35f))
-            val afterShape = when {
-                afterClip != null -> afterClip.shapeType
-                isAfterOval -> "OVAL"
-                else -> shapeType
-            }
-            val afterPolySides = afterClip?.polygonSides ?: 0
-            val afterPolyPath = afterClip?.pathData ?: ""
+
+            // ── ShapeClassifier replaces the inline 0.35f oval check for ::after ────────────────
+            val afterShapeDescriptor = ShapeClassifier.classify(
+                radii           = afterRadii,
+                width           = afterWidth,
+                height          = afterHeight,
+                borderRadiusCss = afterStyle["border-radius"],
+                clipPath        = afterClip
+            )
+            val afterShape    = afterShapeDescriptor.shapeTypeId.let { if (it == "ROUNDED_RECT") shapeType else it }
+            val afterPolySides = afterShapeDescriptor.polygonSides
+            val afterPolyPath  = afterShapeDescriptor.pathData
 
             val afterZ = GeometryParser.parseZIndex(afterStyle)
-            val afterStack = 70 + afterZ * 10
+            val afterStack = LayerStack.afterSlot(afterZ)
+
 
             val afterFilterDef = EffectsResolver.toFilterDef(afterFilter)
 
-            if (afterBgs.isNotEmpty() || afterBorder != null || (isBoxPrimitive && afterShadows.isNotEmpty())) {
+            if (afterBgs.isNotEmpty() || afterBorder != null || afterShadows.isNotEmpty()) {
                 val afterBox = BoxLayerBuilder.buildBoxLayer(
                     shapeType = afterShape,
                     polygonSides = afterPolySides,
@@ -450,34 +421,12 @@ object NxprcCompiler {
                     drawCacheHint = true
                 )
                 layerCollector.addLayer(afterStack, afterBox)
-            } else if (afterBgs.isNotEmpty()) {
-                afterBgs.reversed().forEachIndexed { index, bg ->
-                    val shape = BoxLayerBuilder.buildGradientShape(
-                        shapeType = shapeType,
-                        cornerRadius = radii.topLeft,
-                        fill = bg,
-                        stroke = if (index == afterBgs.size - 1) afterBorder else null,
-                        width = afterWidth,
-                        height = afterHeight,
-                        left = 0f,
-                        top = 0f,
-                        buttonWidth = buttonWidth,
-                        buttonHeight = buttonHeight,
-                        filterDef = afterFilterDef,
-                        opacity = afterOpacity,
-                        transform = afterTransform,
-                        boxShadows = afterShadows,
-                        hasMultipleFills = afterBgs.size > 1,
-                        drawCacheHint = true
-                    )
-                    layerCollector.addLayer(afterStack, shape)
-                }
             }
         }
 
         // 7. Center Text Label (Embossed 3D + Glow Text Shadows)
-        var centerGlyphAdded = false
-        if (textNode != null) {
+        var centerGlyphAdded = allTextNodes.size > 1
+        if (textNode != null && allTextNodes.size <= 1) {
             val textStyle = CssCascadeResolver.computeStyle(textNode, stylesheet, styleCache).base
             if (ButtonNodeSelector.isVisible(textStyle)) {
                 val text = textNode.findFirstText() ?: defaultControl
@@ -489,14 +438,14 @@ object NxprcCompiler {
                 } else rawTextColor
 
                 val fontSize = GeometryParser.parseFontSize(textStyle["font-size"] ?: baseProps["font-size"])
-                    ?: (buttonHeight * 0.40f)
+                    ?: sizeMetrics.defaultFontSize  // SizeMetrics.FONT_SIZE_RATIO = 0.40f
                 val textShadows = ShadowParser.parseTextShadows(textStyle["text-shadow"] ?: baseProps["text-shadow"])
 
                 val darkTextShadow = textShadows.firstOrNull { ColorParser.isDark(it.color) }
                 val lightTextHighlight = textShadows.firstOrNull { !ColorParser.isDark(it.color) }
 
                 val textZ = GeometryParser.parseZIndex(textStyle)
-                val textStack = 200 + textZ * 10
+                val textStack = LayerStack.textSlot(textZ)  // replaces: if(textZ!=0)(60+textZ*100+30) else 200
 
                 val textBounds = resolvedNodeBounds[textNode]
                 val (tcX, tcY) = if (textBounds != null) {
@@ -509,7 +458,7 @@ object NxprcCompiler {
 
                 val lineResult = com.sanket.tools.nexpad.nxprc.engine.text.TextLineBreaker.breakLines(
                     text = text,
-                    maxWidth = buttonWidth * 0.9f,
+                    maxWidth = sizeMetrics.textMaxWidth,  // SizeMetrics.TEXT_MAX_WIDTH_RATIO = 0.90f
                     fontSizeSp = fontSize,
                     fontWeight = 700,
                     whiteSpace = textStyle["white-space"] ?: baseProps["white-space"],
@@ -535,9 +484,9 @@ object NxprcCompiler {
                                     textShadows = textShadows,
                                     maxLines = 1,
                                     lineHeightSp = lineResult.lineHeight,
-                                    textAlign = textStyle["text-align"]?.uppercase() ?: "CENTER"
+                                    textAlign = TextAlignValue.parse(textStyle["text-align"] ?: baseProps["text-align"]).nxprcId
                                 ),
-                                isThumbCap = autoCategory.equals("JOYSTICK", ignoreCase = true)
+                                isThumbCap = autoCategory.equals("JOYSTICK", ignoreCase = true) || autoCategory.equals("TOUCHPAD", ignoreCase = true)
                             )
                         }
                     }
@@ -555,7 +504,7 @@ object NxprcCompiler {
                             offsetXRatio = offXRatio,
                             offsetYRatio = offYRatio
                         ),
-                        isThumbCap = autoCategory.equals("JOYSTICK", ignoreCase = true)
+                        isThumbCap = autoCategory.equals("JOYSTICK", ignoreCase = true) || autoCategory.equals("TOUCHPAD", ignoreCase = true)
                     )
                 }
                 centerGlyphAdded = true
@@ -566,8 +515,9 @@ object NxprcCompiler {
         if (!centerGlyphAdded) {
             val explicitText = primaryNode.findFirstText()
             val hasChildElements = primaryNode.children.any { it.tag != "#text" && it.tag != "style" }
-            val suppressFallbackText = autoCategory.equals("JOYSTICK", ignoreCase = true) ||
-                ((autoCategory.equals("SYSTEM", ignoreCase = true) || autoCategory.equals("DPAD", ignoreCase = true)) && hasChildElements)
+            val suppressFallbackText = autoCategory.equals(NxprcCategory.JOYSTICK.id, ignoreCase = true) ||
+                autoCategory.equals(NxprcCategory.TOUCHPAD.id, ignoreCase = true) ||
+                ((autoCategory.equals(NxprcCategory.SYSTEM.id, ignoreCase = true) || autoCategory.equals(NxprcCategory.DPAD.id, ignoreCase = true)) && hasChildElements)
 
             val centerText = if (suppressFallbackText) {
                 explicitText
@@ -577,7 +527,7 @@ object NxprcCompiler {
 
             if (centerText != null) {
                 val textColor = ColorParser.parse(baseProps["color"]) ?: 0xFFFFFFFFL
-                val fontSize = GeometryParser.parseFontSize(baseProps["font-size"]) ?: (buttonHeight * 0.35f)
+                val fontSize = GeometryParser.parseFontSize(baseProps["font-size"]) ?: sizeMetrics.defaultFontSize
             val textShadows = ShadowParser.parseTextShadows(baseProps["text-shadow"])
 
             val darkTextShadow = textShadows.firstOrNull { ColorParser.isDark(it.color) }
@@ -585,7 +535,7 @@ object NxprcCompiler {
 
             val lineResult = com.sanket.tools.nexpad.nxprc.engine.text.TextLineBreaker.breakLines(
                 text = centerText,
-                maxWidth = buttonWidth * 0.9f,
+                maxWidth = sizeMetrics.textMaxWidth,  // SizeMetrics.TEXT_MAX_WIDTH_RATIO = 0.90f
                 fontSizeSp = fontSize,
                 fontWeight = 700,
                 whiteSpace = baseProps["white-space"],
@@ -601,7 +551,7 @@ object NxprcCompiler {
                         val lineCenterY = startY + lIdx * lineResult.lineHeight
                         val lineOffYRatio = (lineCenterY - buttonHeight / 2f) / buttonHeight
                         layerCollector.addLayer(
-                            200 + lIdx,
+                            LayerStack.TEXT_DEFAULT + lIdx,
                             CanvasLayer.TextLayer(
                                 text = line,
                                 fontSizeSp = fontSize,
@@ -611,15 +561,15 @@ object NxprcCompiler {
                                 textShadows = textShadows,
                                 maxLines = 1,
                                 lineHeightSp = lineResult.lineHeight,
-                                textAlign = baseProps["text-align"]?.uppercase() ?: "CENTER"
+                                textAlign = TextAlignValue.parse(baseProps["text-align"]).nxprcId
                             ),
-                            isThumbCap = autoCategory.equals("JOYSTICK", ignoreCase = true)
+                            isThumbCap = autoCategory.equals("JOYSTICK", ignoreCase = true) || autoCategory.equals("TOUCHPAD", ignoreCase = true)
                         )
                     }
                 }
             } else {
                 layerCollector.addLayer(
-                    200,
+                    LayerStack.TEXT_DEFAULT,
                     CanvasLayer.CenterGlyph(
                         text = centerText,
                         fontSizeSp = fontSize,
@@ -629,7 +579,7 @@ object NxprcCompiler {
                         highlightColor = lightTextHighlight?.color ?: NxprcDefaults.DEFAULT_HIGHLIGHT_COLOR,
                         textShadows = textShadows
                     ),
-                    isThumbCap = autoCategory.equals("JOYSTICK", ignoreCase = true)
+                    isThumbCap = autoCategory.equals("JOYSTICK", ignoreCase = true) || autoCategory.equals("TOUCHPAD", ignoreCase = true)
                 )
             }
             }
@@ -688,14 +638,22 @@ object NxprcCompiler {
         }
 
         val primaryClass = primaryNode.classNames.firstOrNull()?.replace("-", "_")
+        val isTouchControl = autoControl.equals("LTP", ignoreCase = true) || autoControl.equals("RTP", ignoreCase = true)
         val resolvedId = when {
             autoId.isNotBlank() && autoId != "rc.custom" -> if (autoId.startsWith("rc.")) autoId else "rc.$autoId"
+            primaryClass != null && isTouchControl && !primaryClass.contains(autoControl, ignoreCase = true) -> "rc.${primaryClass}_${autoControl.lowercase()}"
             primaryClass != null -> "rc.$primaryClass"
             else -> "rc.custom_$autoControl"
         }
 
         val resolvedName = when {
             autoName.isNotBlank() && autoName != "Custom Button" -> autoName
+            primaryClass != null && isTouchControl && !primaryClass.contains(autoControl, ignoreCase = true) -> {
+                val base = primaryClass.split("_", "-").joinToString(" ") { word ->
+                    word.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+                }
+                "$base $autoControl"
+            }
             primaryClass != null -> primaryClass.split("_", "-").joinToString(" ") { word ->
                 word.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
             }
@@ -707,7 +665,10 @@ object NxprcCompiler {
 
         val totalCanvasOutsets = EffectsResolver.computeTotalCanvasOutsets(layerCollector.getAllEntries())
         val (allSortedLayers, initialCapIndices) = layerCollector.getSortedLayersAndCapIndices()
-        val capIndices = if (autoCategory.equals("JOYSTICK", ignoreCase = true)) {
+        val isTouchpad = autoCategory.equals("TOUCHPAD", ignoreCase = true) ||
+                autoControl.equals("LTP", ignoreCase = true) ||
+                autoControl.equals("RTP", ignoreCase = true)
+        val capIndices = if (!isTouchpad && autoCategory.equals("JOYSTICK", ignoreCase = true)) {
             val hasCapShapes = initialCapIndices.any {
                 val layer = allSortedLayers.getOrNull(it)
                 layer is CanvasLayer.BoxLayer || layer is CanvasLayer.GradientShape
@@ -750,14 +711,14 @@ object NxprcCompiler {
             }
         } else emptyList()
 
-        return NxprcDocument(
+        val document = NxprcDocument(
             manifest = NxprcManifest(
                 id = resolvedId,
                 name = resolvedName,
                 category = autoCategory.uppercase(),
                 defaultControl = autoControl.uppercase(),
-                widthDp = buttonWidth.toInt().coerceIn(NxprcDefaults.DEFAULT_MIN_SIZE_DP, NxprcDefaults.DEFAULT_MAX_SIZE_DP),
-                heightDp = buttonHeight.toInt().coerceIn(NxprcDefaults.DEFAULT_MIN_SIZE_DP, NxprcDefaults.DEFAULT_MAX_SIZE_DP),
+                widthDp = buttonWidth.toInt(),
+                heightDp = buttonHeight.toInt(),
                 description = "Compiled from HTML/CSS/SVG DOM Engine",
                 springPhysics = springPhysics
             ),
@@ -778,10 +739,120 @@ object NxprcCompiler {
                 springDamping = dampingRatio,
                 enableGameRumble = true,
                 rumbleIntensity = 1.0f,
-                joystickSpringTension = if (autoCategory.equals("JOYSTICK", ignoreCase = true)) 800f else 750f,
+                joystickSpringTension = if (autoCategory.equals("JOYSTICK", ignoreCase = true) || autoCategory.equals("TOUCHPAD", ignoreCase = true)) 800f else 750f,
                 triggerMaxPullDepth = if (autoCategory.equals("TRIGGER", ignoreCase = true)) 16f else 12f,
                 tracks = allTracks
             )
         )
+
+        return CompileResult(document, warnings.build())
+    }
+
+    /**
+     * Scans computed CSS properties for values the NXPRC engine cannot represent.
+     * Emits DROPPED warnings for each unsupported property and warnings for lossy conversions.
+     */
+    private fun scanUnsupportedCssProps(
+        props: Map<String, String>,
+        stylesheet: com.sanket.tools.nexpad.nxprc.engine.css.CssStylesheet,
+        w: CompileWarningCollector
+    ) {
+        val droppedProps = mapOf(
+            "mix-blend-mode" to Pair(
+                "mix-blend-mode is not supported by the NXPRC renderer. Layer will render without blending.",
+                "Remove mix-blend-mode or simulate blend mode via opacity and layered color stops"
+            ),
+            "backdrop-filter" to Pair(
+                "backdrop-filter is not supported. Use CSS filter: or SVG <filter> instead.",
+                "Use CSS filter: blur() on an underlying translucent element"
+            ),
+            "animation" to Pair(
+                "CSS @keyframes animations are not supported. Use --spring-stiffness/--spring-damping for physics, or SVG animations.",
+                "Express animation using supported transform/opacity keyframes or spring physics"
+            ),
+            "transition" to Pair(
+                "CSS transitions are not supported. The compiler uses spring physics for press interactions.",
+                "Remove CSS transitions; configure interactive tactile physics via --spring-stiffness and --spring-damping"
+            ),
+            "mask" to Pair(
+                "CSS mask is not supported. Use clip-path: polygon() or border-radius for shape masking.",
+                "Use clip-path: polygon() or SVG vector paths"
+            ),
+            "mask-image" to Pair(
+                "CSS mask-image is not supported. Use clip-path: polygon() or border-radius.",
+                "Use clip-path: polygon() or SVG vector paths"
+            ),
+            "perspective" to Pair(
+                "CSS 3D perspective transforms are not supported. Use 2D transform only.",
+                "Use standard 2D transforms (rotate, scale, skew, matrix)"
+            )
+        )
+
+        val seenDropped = mutableSetOf<String>()
+        val allDeclarations = buildList {
+            add(props)
+            stylesheet.rules.forEach { add(it.declarations) }
+        }
+
+        allDeclarations.forEach { declMap ->
+            droppedProps.forEach { (prop, info) ->
+                val (msg, fix) = info
+                if (declMap.containsKey(prop) && seenDropped.add(prop)) {
+                    w.dropped(
+                        code = "UNSUPPORTED_CSS_PROPERTY",
+                        message = msg,
+                        source = prop,
+                        property = prop,
+                        originalValue = declMap[prop],
+                        suggestedFix = fix
+                    )
+                }
+            }
+
+            if (declMap.containsKey("grid") || declMap["display"]?.trim()?.equals("grid", ignoreCase = true) == true) {
+                if (seenDropped.add("grid")) {
+                    w.dropped(
+                        code = "UNSUPPORTED_CSS_PROPERTY",
+                        message = "CSS Grid layout is not supported. Use position:absolute with explicit px coordinates.",
+                        source = "grid",
+                        property = "display",
+                        originalValue = declMap["display"] ?: "grid",
+                        suggestedFix = "Replace CSS Grid with position: absolute or Flexbox layout"
+                    )
+                }
+            }
+
+            // Warn on multi-function filter (only first function is parsed)
+            val filterVal = declMap["filter"]
+            if (filterVal != null && filterVal.contains(")") &&
+                filterVal.indexOf(")") < filterVal.lastIndexOf("(")
+            ) {
+                if (seenDropped.add("filter-multi-$filterVal")) {
+                    w.warn(
+                        code = "FILTER_MULTI_FUNCTION",
+                        message = "Multiple CSS filter functions detected. Only the first supported function is compiled. Use SVG <filter> graphs for compound effects.",
+                        source = "filter: $filterVal",
+                        property = "filter",
+                        originalValue = filterVal,
+                        suggestedFix = "Split multiple filter functions across separate DOM layers or use an SVG filter graph"
+                    )
+                }
+            }
+
+            // Info on conic-gradient with many stops
+            val bg = declMap["background"] ?: declMap["background-image"] ?: ""
+            if (bg.contains("conic-gradient") && bg.count { it == ',' } > 8) {
+                if (seenDropped.add("conic-gradient-many")) {
+                    w.info(
+                        code = "CONIC_GRADIENT_MANY_STOPS",
+                        message = "conic-gradient with many color stops may reduce rendering performance. Consider an SVG radialGradient paint server instead.",
+                        source = "background",
+                        property = "background",
+                        originalValue = bg,
+                        suggestedFix = "Use SVG radialGradient or reduce conic-gradient color stop count"
+                    )
+                }
+            }
+        }
     }
 }

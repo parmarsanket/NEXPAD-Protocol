@@ -2,53 +2,91 @@ package com.sanket.tools.nexpad.nxprc.engine.compiler
 
 import com.sanket.tools.nexpad.nxprc.CanvasLayer
 import com.sanket.tools.nexpad.nxprc.FillBrush
-import com.sanket.tools.nexpad.nxprc.LayerShapeType
 import com.sanket.tools.nexpad.nxprc.NxprcDefaults
+import com.sanket.tools.nexpad.nxprc.engine.classifier.NodeRoleClassifier
+import com.sanket.tools.nexpad.nxprc.engine.classifier.ShapeClassifier
+import com.sanket.tools.nexpad.nxprc.engine.classifier.allIdentifierTokens
 import com.sanket.tools.nexpad.nxprc.engine.css.CssCascadeResolver
 import com.sanket.tools.nexpad.nxprc.engine.css.CssStylesheet
 import com.sanket.tools.nexpad.nxprc.engine.dom.DomNode
+import com.sanket.tools.nexpad.nxprc.engine.model.SizeMetrics
+import com.sanket.tools.nexpad.nxprc.engine.stack.LayerStack
 import com.sanket.tools.nexpad.nxprc.engine.parsers.*
+
 
 /**
  * Compiles nested DOM element trees, child pseudo-elements (`::before`, `::after`),
  * and secondary text leaf layers into ordered [CanvasLayer] instances.
  */
+/**
+ * Parameter object encapsulating shared compilation context, stylesheet, caches, and collectors
+ * passed through recursive DOM compilation. Eliminates parameter list code smells.
+ */
+internal data class CompilationContext(
+    val buttonWidth: Float,
+    val buttonHeight: Float,
+    val baseProps: Map<String, String>,
+    val stylesheet: CssStylesheet,
+    val layerCollector: LayerCollector,
+    val textNode: DomNode?,
+    val allTextNodes: List<DomNode>,
+    val surfaceSvgNode: DomNode? = null,
+    val svgFilters: Map<String, ParsedSvgFilter> = emptyMap(),
+    val styleCache: MutableMap<DomNode, com.sanket.tools.nexpad.nxprc.engine.css.ComputedElementStyle>? = null,
+    val resolvedNodeBounds: MutableMap<DomNode, ComputedBoxBounds>? = null,
+    val category: String = "BUTTON",
+    val capabilities: com.sanket.tools.nexpad.nxprc.EngineCapabilities = com.sanket.tools.nexpad.nxprc.EngineCapabilities.CURRENT
+)
+
 internal object DomTreeCompiler {
 
+    /**
+     * Returns true if [node] belongs to the thumb-cap layer zone for joystick/touchpad buttons.
+     *
+     * Delegates to [NodeRoleClassifier] — replacing all previous inline `contains("base")`,
+     * `contains("thumb")`, `contains("socket")` heuristics that were fragile and untestable.
+     */
     fun isNodeThumbCap(node: DomNode, category: String): Boolean {
-        if (!category.equals("JOYSTICK", ignoreCase = true)) return false
-
-        // 1. Ancestor hierarchy takes highest precedence: containers define physical zones
-        var ancestor = node.parent
-        while (ancestor != null && !ancestor.tag.equals("button", ignoreCase = true)) {
-            val aClass = (ancestor.classNames + listOfNotNull(ancestor.id)).joinToString(" ").lowercase()
-            if (aClass.contains("thumb") || aClass.contains("cap") || aClass.contains("dome") || aClass.contains("knob")) {
-                // Inside a thumb cap container: unless the element explicitly declares itself a fixed base/socket, it belongs to the cap
-                val classOrId = (node.classNames + listOfNotNull(node.id)).joinToString(" ").lowercase()
-                return !classOrId.contains("base") && !classOrId.contains("socket")
-            }
-            if (aClass.contains("base") || aClass.contains("socket") || aClass.contains("bezel") || aClass.contains("chassis") || aClass.contains("housing")) {
-                return false
-            }
-            ancestor = ancestor.parent
-        }
-
-        // 2. Direct element inspection (when elements are direct children of <button>)
-        val classOrId = (node.classNames + listOfNotNull(node.id)).joinToString(" ").lowercase()
-        val isExplicitCap = classOrId.contains("thumb") || classOrId.contains("cap") || classOrId.contains("dome") ||
-                classOrId.contains("knob") || classOrId.contains("grip") || classOrId.contains("core") ||
-                classOrId.contains("stick-label") || classOrId.contains("star") || classOrId.contains("emblem") ||
-                classOrId.contains("glyph")
-        if (isExplicitCap) return true
-
-        val isExplicitBase = classOrId.contains("base") || classOrId.contains("bezel") || classOrId.contains("chassis") ||
-                classOrId.contains("housing") || classOrId.contains("outer") || classOrId.contains("ring") ||
-                classOrId.contains("socket") || classOrId.contains("tick") || classOrId.contains("axis") ||
-                classOrId.contains("marker") || classOrId.contains("node") || classOrId.contains("guide")
-        if (isExplicitBase) return false
-
-        return false
+        if (!category.equals("JOYSTICK", ignoreCase = true) && !category.equals("TOUCHPAD", ignoreCase = true)) return false
+        val nxprcCategory = com.sanket.tools.nexpad.nxprc.NxprcCategory.fromId(category)
+            ?: com.sanket.tools.nexpad.nxprc.NxprcCategory.JOYSTICK
+        return NodeRoleClassifier.classify(node, nxprcCategory) ==
+               NodeRoleClassifier.NodeRole.THUMB_CAP
     }
+
+    /**
+     * Context-oriented compilation entry point using [CompilationContext].
+     */
+    internal fun compileDomChildren(
+        parentNode: DomNode,
+        parentWidth: Float,
+        parentHeight: Float,
+        parentGlobalX: Float,
+        parentGlobalY: Float,
+        isParentClipping: Boolean = false,
+        parentStackBase: Int = LayerStack.CONTENT_BASE + LayerStack.CHILD_OFFSET,
+        context: CompilationContext
+    ) = compileDomChildren(
+        parentNode = parentNode,
+        parentWidth = parentWidth,
+        parentHeight = parentHeight,
+        parentGlobalX = parentGlobalX,
+        parentGlobalY = parentGlobalY,
+        isParentClipping = isParentClipping,
+        parentStackBase = parentStackBase,
+        buttonWidth = context.buttonWidth,
+        buttonHeight = context.buttonHeight,
+        baseProps = context.baseProps,
+        stylesheet = context.stylesheet,
+        layerCollector = context.layerCollector,
+        textNode = context.textNode,
+        allTextNodes = context.allTextNodes,
+        surfaceSvgNode = context.surfaceSvgNode,
+        svgFilters = context.svgFilters,
+        styleCache = context.styleCache,
+        resolvedNodeBounds = context.resolvedNodeBounds,
+        category = context.category
+    )
 
     /**
      * Recursively traverses and compiles children of [parentNode] into canvas layers,
@@ -61,7 +99,7 @@ internal object DomTreeCompiler {
         parentGlobalX: Float,
         parentGlobalY: Float,
         isParentClipping: Boolean = false,
-        parentStackBase: Int = 60,
+        parentStackBase: Int = LayerStack.CONTENT_BASE + LayerStack.CHILD_OFFSET,
         buttonWidth: Float,
         buttonHeight: Float,
         baseProps: Map<String, String>,
@@ -125,26 +163,33 @@ internal object DomTreeCompiler {
                 isTopOnly = isPseudoTopOnly
             )
             val pClip = GeometryParser.parseClipPath(pseudoStyle["clip-path"] ?: pseudoStyle["-webkit-clip-path"], pWidth, pHeight)
-            val isPOval = pseudoStyle["border-radius"]?.contains("50%") == true ||
-                (pRadii.topLeft >= (pWidth * 0.35f) && pRadii.topRight >= (pWidth * 0.35f) &&
-                 pRadii.bottomRight >= (pWidth * 0.35f) && pRadii.bottomLeft >= (pWidth * 0.35f))
-            val pShape = when {
-                pClip != null -> pClip.shapeType
-                isPOval -> LayerShapeType.OVAL.name
-                else -> LayerShapeType.ROUNDED_RECT.name
-            }
-            val pPolySides = pClip?.polygonSides ?: 0
-            val pPolyPath = pClip?.pathData ?: ""
+            // ── ShapeClassifier replaces inline 0.35f oval check for pseudo-elements ────────────────
+            val pShapeDescriptor = ShapeClassifier.classify(
+                radii           = pRadii,
+                width           = pWidth,
+                height          = pHeight,
+                borderRadiusCss = pseudoStyle["border-radius"],
+                clipPath        = pClip
+            )
+            val pShape     = pShapeDescriptor.shapeTypeId
+            val pPolySides = pShapeDescriptor.polygonSides
+            val pPolyPath  = pShapeDescriptor.pathData
 
             val pZ = GeometryParser.parseZIndex(pseudoStyle)
-            val pStack = parentStack + (if (isBefore) 1 else 2) + pZ * 10
+            val pStack = if (pZ != 0) {
+                if (isBefore) LayerStack.beforeSlot(pZ) else LayerStack.afterSlot(pZ)
+            } else {
+                parentStack + (if (isBefore) 1 else 2)
+            }
 
             val pBg = pseudoStyle["background"] ?: pseudoStyle["background-color"]
             val pFills = if (pBg != null) {
                 GradientParser.parseAll(
                     pBg,
                     pseudoStyle["background-position"],
-                    pseudoStyle["background-size"]
+                    pseudoStyle["background-size"],
+                    boxWidth = pWidth,
+                    boxHeight = pHeight
                 )
             } else emptyList()
 
@@ -179,7 +224,7 @@ internal object DomTreeCompiler {
                     transform = pTransform
                 )
                 val isPseudoCap = isNodeThumbCap(node, category) ||
-                        (category.equals("JOYSTICK", ignoreCase = true) &&
+                        ((category.equals("JOYSTICK", ignoreCase = true) || category.equals("TOUCHPAD", ignoreCase = true)) &&
                          node.tag.equals("button", ignoreCase = true) &&
                          (pWidth / buttonWidth) <= 0.68f && (pHeight / buttonHeight) <= 0.68f)
                 layerCollector.addLayer(pStack, box, isThumbCap = isPseudoCap)
@@ -212,7 +257,7 @@ internal object DomTreeCompiler {
             val cFilter = FilterParser.parse(childStyle["filter"] ?: child.attributes["filter"], svgFilters)
 
             val childZ = GeometryParser.parseZIndex(childStyle)
-            val childStack = parentStackBase + 10 + childZ * 10
+            val childStack = LayerStack.childSlot(parentStackBase, childZ)
 
             // If child is an SVG element, extract its shapes directly into VectorPath layers
             if (child.tag.equals("svg", ignoreCase = true)) {
@@ -221,8 +266,15 @@ internal object DomTreeCompiler {
                 val svgShapes = child.getAllSvgShapes(stylesheet, paintServers)
                 if (svgShapes.isNotEmpty()) {
                     val scale = (maxOf(cWidth / buttonWidth, cHeight / buttonHeight)).coerceIn(0.05f, 2.0f)
-                    val offX = globalX / buttonWidth
-                    val offY = globalY / buttonHeight
+                    val svgTransform = AnimationParser.parseTransforms(
+                        childStyle["transform"],
+                        childStyle["transform-origin"],
+                        cWidth,
+                        cHeight
+                    )
+                    val svgRotation = svgTransform.rotationDegrees
+                    val offX = (globalX + svgTransform.translateX) / buttonWidth
+                    val offY = (globalY + svgTransform.translateY) / buttonHeight
                     svgShapes.forEachIndexed { sIdx, shape ->
                         val resolvedFill = shape.fill ?: if (sIdx == 0 && shape.stroke == null) FillBrush.Solid(NxprcDefaults.DEFAULT_ACCENT_COLOR) else shape.fill ?: FillBrush.Solid(0x00000000L)
                         layerCollector.addLayer(
@@ -231,6 +283,7 @@ internal object DomTreeCompiler {
                                 pathData = shape.pathData,
                                 fill = resolvedFill,
                                 stroke = shape.stroke,
+                                rotationDegrees = svgRotation,
                                 offsetXRatio = offX,
                                 offsetYRatio = offY,
                                 scale = scale
@@ -249,23 +302,28 @@ internal object DomTreeCompiler {
                 isTopOnly = isChildTopOnly
             )
             val cClip = GeometryParser.parseClipPath(childStyle["clip-path"] ?: childStyle["-webkit-clip-path"], cWidth, cHeight)
-            val isCOval = childStyle["border-radius"]?.contains("50%") == true ||
-                (cRadii.topLeft >= (cWidth * 0.35f) && cRadii.topRight >= (cWidth * 0.35f) &&
-                 cRadii.bottomRight >= (cWidth * 0.35f) && cRadii.bottomLeft >= (cWidth * 0.35f))
-            val cShape = when {
-                cClip != null -> cClip.shapeType
-                isCOval -> LayerShapeType.OVAL.name
-                else -> LayerShapeType.ROUNDED_RECT.name
-            }
-            val cPolySides = cClip?.polygonSides ?: 0
-            val cPolyPath = cClip?.pathData ?: ""
+
+            // ── ShapeClassifier replaces the inline 0.35f oval check for DOM children ─────────────
+            val cShapeDescriptor = ShapeClassifier.classify(
+                radii           = cRadii,
+                width           = cWidth,
+                height          = cHeight,
+                borderRadiusCss = childStyle["border-radius"],
+                clipPath        = cClip
+            )
+            val cShape    = cShapeDescriptor.shapeTypeId
+            val cPolySides = cShapeDescriptor.polygonSides
+            val cPolyPath  = cShapeDescriptor.pathData
+
 
             val cBg = childStyle["background"] ?: childStyle["background-color"]
             val cFills = if (cBg != null) {
                 GradientParser.parseAll(
                     cBg,
                     childStyle["background-position"],
-                    childStyle["background-size"]
+                    childStyle["background-size"],
+                    boxWidth = cWidth,
+                    boxHeight = cHeight
                 )
             } else emptyList()
 
@@ -334,15 +392,25 @@ internal object DomTreeCompiler {
                     wordBreak = childStyle["word-break"]
                 )
 
+                val hasExplicitWidth = childStyle["width"] != null
+                val hasExplicitHeight = childStyle["height"] != null
+                val effectiveTextW = if (!hasExplicitWidth) {
+                    val metrics = com.sanket.tools.nexpad.nxprc.engine.text.TextMetrics.measure(childText, tFontSize, tWeight)
+                    metrics.width.coerceIn(tFontSize, cWidth)
+                } else cWidth
+                val effectiveTextH = if (!hasExplicitHeight) {
+                    tFontSize * 1.2f
+                } else cHeight
+
                 if (lineResult.lines.size > 1) {
-                    val baseCenterY = globalY + cHeight / 2f
+                    val baseCenterY = globalY + effectiveTextH / 2f
                     val totalH = lineResult.totalHeight
                     val startY = baseCenterY - totalH / 2f + lineResult.lineHeight / 2f
 
                     lineResult.lines.forEachIndexed { lIdx, line ->
                         if (line.isNotEmpty()) {
                             val lineCenterY = startY + lIdx * lineResult.lineHeight
-                            val offXRatio = (globalX + cWidth / 2f - buttonWidth / 2f) / buttonWidth
+                            val offXRatio = (globalX + effectiveTextW / 2f - buttonWidth / 2f) / buttonWidth
                             val offYRatio = (lineCenterY - buttonHeight / 2f) / buttonHeight
 
                             layerCollector.addLayer(
@@ -364,8 +432,8 @@ internal object DomTreeCompiler {
                         }
                     }
                 } else {
-                    val childCenterX = globalX + cWidth / 2f
-                    val childCenterY = globalY + cHeight / 2f
+                    val childCenterX = globalX + effectiveTextW / 2f
+                    val childCenterY = globalY + effectiveTextH / 2f
                     val offXRatio = (childCenterX - buttonWidth / 2f) / buttonWidth
                     val offYRatio = (childCenterY - buttonHeight / 2f) / buttonHeight
 

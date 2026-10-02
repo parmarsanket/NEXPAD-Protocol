@@ -1,5 +1,6 @@
 package com.sanket.tools.nexpad.nxprc
 
+import com.sanket.tools.nexpad.model.NexpadKeys
 import com.sanket.tools.nexpad.nxprc.engine.compiler.NxprcCompiler
 
 /**
@@ -13,18 +14,39 @@ import com.sanket.tools.nexpad.nxprc.engine.compiler.NxprcCompiler
 object NxprcPackager {
 
     /**
-     * Compiles raw HTML/CSS/SVG text into an NxprcDocument.
+     * Compiles raw HTML/CSS/SVG text into an [NxprcDocument].
+     * For detailed compiler warnings regarding dropped/approximated CSS, use [compileWithWarnings].
      */
     fun compile(
         html: String,
         id: String = "rc.custom",
         name: String = "Custom Button",
-        category: String = "BUTTON",
-        defaultControl: String = "A"
-    ): NxprcDocument {
+        category: String = NxprcCategory.BUTTON.id,
+        defaultControl: String = NexpadKeys.A
+    ): NxprcDocument = compileWithWarnings(
+        html = html,
+        id = id,
+        name = name,
+        category = category,
+        defaultControl = defaultControl
+    ).document
+
+    /**
+     * Compiles raw HTML/CSS/SVG text into a [CompileResult] containing the [NxprcDocument]
+     * and any compiler warnings for CSS properties that were dropped or approximated.
+     */
+    fun compileWithWarnings(
+        html: String,
+        id: String = "rc.custom",
+        name: String = "Custom Button",
+        category: String = NxprcCategory.BUTTON.id,
+        defaultControl: String = NexpadKeys.A
+    ): CompileResult {
         NxprcInputValidator.validateHtml(html)
         NxprcInputValidator.validateMetadata(id, name)
-        return NxprcCompiler.compile(
+        NxprcInputValidator.validateCategory(category)
+        NxprcInputValidator.validateControl(defaultControl)
+        return NxprcCompiler.compileWithWarnings(
             html = html,
             id = id,
             name = name,

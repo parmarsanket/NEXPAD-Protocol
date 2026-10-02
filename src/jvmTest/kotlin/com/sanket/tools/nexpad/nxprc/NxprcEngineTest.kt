@@ -1621,5 +1621,358 @@ LINE TWO</button>
         assertEquals(doc.canvas.layers.size, decoded.canvas.layers.size)
         assertEquals(doc.canvas.capLayerIndices, decoded.canvas.capLayerIndices, "Cap layer indices must survive binary serialization")
     }
-}
 
+    @Test
+    fun testCompilerDiagnosticsAndWarnings() {
+        val unsupportedHtml = """
+            <style>
+              .test-btn {
+                width: 90px;
+                height: 90px;
+                background: #10121a;
+                mix-blend-mode: screen;
+                backdrop-filter: blur(5px);
+                display: grid;
+                filter: blur(2px) brightness(1.2);
+              }
+              .test-btn:active { transform: scale(0.92); }
+            </style>
+            <button class="test-btn" data-control="A" data-category="BUTTON" data-name="Test Warn">
+              <span>A</span>
+            </button>
+        """.trimIndent()
+
+        val result = NxprcPackager.compileWithWarnings(unsupportedHtml, id = "rc.test_warn", name = "Test Warn")
+        assertTrue(result.warnings.isNotEmpty(), "Warnings must be emitted for unsupported properties")
+        assertTrue(result.hasLosses, "Must report hasLosses == true due to mix-blend-mode / backdrop-filter")
+
+        val droppedCodes = result.warnings.filter { it.severity == WarningSeverity.DROPPED }.map { it.source }
+        assertTrue(droppedCodes.contains("mix-blend-mode"), "mix-blend-mode must trigger DROPPED warning")
+        assertTrue(droppedCodes.contains("backdrop-filter"), "backdrop-filter must trigger DROPPED warning")
+        assertTrue(droppedCodes.contains("grid"), "grid must trigger DROPPED warning")
+
+        val multiFilterWarning = result.warnings.firstOrNull { it.code == "FILTER_MULTI_FUNCTION" }
+        assertNotNull(multiFilterWarning, "Multi-function filter must trigger FILTER_MULTI_FUNCTION warning")
+
+        val summary = result.warningsSummary()
+        assertTrue(summary.contains("[DROPPED]"), "Summary must contain [DROPPED]")
+        assertTrue(summary.contains("[WARNING]"), "Summary must contain [WARNING]")
+
+        // Verify clean HTML emits zero warnings
+        val cleanHtml = """
+            <style>
+              .clean-btn {
+                width: 80px;
+                height: 80px;
+                border-radius: 50%;
+                background: radial-gradient(circle at 50% 50%, #00f0ff 0%, #003366 100%);
+                box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+              }
+              .clean-btn:active { transform: scale(0.92); }
+            </style>
+            <button class="clean-btn" data-control="B" data-category="BUTTON" data-name="Clean B">
+              <span>B</span>
+            </button>
+        """.trimIndent()
+
+        val cleanResult = NxprcPackager.compileWithWarnings(cleanHtml, id = "rc.clean_b", name = "Clean B")
+        assertFalse(cleanResult.hasLosses, "Clean HTML must not have losses")
+        assertTrue(cleanResult.warnings.isEmpty(), "Compliant HTML must emit zero warnings")
+
+        // Ensure compile() delegates seamlessly to document
+        val directDoc = NxprcPackager.compile(cleanHtml, id = "rc.clean_b", name = "Clean B")
+        assertEquals(cleanResult.document.manifest.id, directDoc.manifest.id)
+        assertEquals(cleanResult.document.canvas.layers.size, directDoc.canvas.layers.size)
+    }
+
+    @Test
+    fun testTouchpadComponentCompilationAndValidation() {
+        val touchpadHtml = """
+            <style>
+              .touchpad-ctl {
+                width: 180px;
+                height: 180px;
+                border-radius: 28px;
+                background: radial-gradient(circle at 50% 50%, #1a1e28 0%, #0d0f14 100%);
+                border: 2px solid rgba(52, 211, 153, 0.4);
+              }
+            </style>
+            <div class="touchpad-ctl" data-control="LTP" data-category="TOUCHPAD" data-name="Left Movement Touchpad">
+            </div>
+        """.trimIndent()
+
+        val result = NxprcPackager.compileWithWarnings(
+            html = touchpadHtml,
+            id = "rc.touch_ltp",
+            name = "Left Movement Touchpad",
+            category = "TOUCHPAD",
+            defaultControl = "LTP"
+        )
+
+        val doc = result.document
+        assertEquals("TOUCHPAD", doc.manifest.category)
+        assertEquals("LTP", doc.manifest.defaultControl)
+        assertEquals(180, doc.manifest.widthDp)
+        assertEquals(180, doc.manifest.heightDp)
+        assertEquals(800f, doc.animations.joystickSpringTension)
+        assertTrue(doc.canvas.layers.isNotEmpty(), "Touchpad must produce canvas draw layers")
+
+        // Binary round-trip verification
+        val bytes = NxprcDocument.encodeToBytes(doc)
+        val decoded = NxprcDocument.decodeFromBytes(bytes).getOrThrow()
+        assertEquals("TOUCHPAD", decoded.manifest.category)
+        assertEquals("LTP", decoded.manifest.defaultControl)
+    }
+
+    @Test
+    fun testTouchpadDistinctIdAndWiringForLtpAndRtp() {
+        val ltpBareHtml = """
+            <style>
+              .touchpad-ctl { width: 180px; height: 180px; }
+            </style>
+            <div class="touchpad-ctl" data-control="LTP">
+            </div>
+        """.trimIndent()
+
+        val rtpBareHtml = """
+            <style>
+              .touchpad-ctl { width: 180px; height: 180px; }
+            </style>
+            <div class="touchpad-ctl" data-control="RTP">
+            </div>
+        """.trimIndent()
+
+        val docLtp = NxprcPackager.compile(ltpBareHtml, id = "rc.custom", name = "Custom Button", defaultControl = "LTP")
+        val docRtp = NxprcPackager.compile(rtpBareHtml, id = "rc.custom", name = "Custom Button", defaultControl = "RTP")
+
+        // Crucial test: Ensure LTP and RTP never collide on "rc.touchpad_ctl"
+        assertEquals("rc.touchpad_ctl_ltp", docLtp.manifest.id)
+        assertEquals("rc.touchpad_ctl_rtp", docRtp.manifest.id)
+        assertTrue(docLtp.manifest.id != docRtp.manifest.id, "LTP and RTP must have distinct manifest IDs")
+
+        // With explicit data-id
+        val ltpExplicit = """
+            <div class="touchpad-ctl" data-id="touch_ltp" data-control="LTP"></div>
+        """.trimIndent()
+        val rtpExplicit = """
+            <div class="touchpad-ctl" data-id="touch_rtp" data-control="RTP"></div>
+        """.trimIndent()
+        val docLtpExp = NxprcPackager.compile(ltpExplicit, id = "rc.custom", defaultControl = "LTP")
+        val docRtpExp = NxprcPackager.compile(rtpExplicit, id = "rc.custom", defaultControl = "RTP")
+        assertEquals("rc.touch_ltp", docLtpExp.manifest.id)
+        assertEquals("rc.touch_rtp", docRtpExp.manifest.id)
+    }
+
+    // ── Stage 6: New Constraint-Solver & Round-Trip Tests ────────────────────
+
+    /**
+     * Verifies that parseAspectRatio correctly parses CSS aspect-ratio formats.
+     */
+    @Test
+    fun testAspectRatioConstraintSolving() {
+        val parser = com.sanket.tools.nexpad.nxprc.engine.parsers.GeometryParser
+        assertEquals(1.0f, parser.parseAspectRatio("1")!!, 0.001f)
+        assertEquals(1.0f, parser.parseAspectRatio("1.0")!!, 0.001f)
+        assertEquals(16f / 9f, parser.parseAspectRatio("16 / 9")!!, 0.001f)
+        assertEquals(16f / 9f, parser.parseAspectRatio("16/9")!!, 0.001f)
+        assertEquals(4f / 3f, parser.parseAspectRatio("4 / 3")!!, 0.001f)
+        assertEquals(2.0f, parser.parseAspectRatio("2 / 1")!!, 0.001f)
+        assertNull(parser.parseAspectRatio(null))
+        assertNull(parser.parseAspectRatio("   "))
+        assertNull(parser.parseAspectRatio("4 / 0"))
+        assertNull(parser.parseAspectRatio("-1"))
+        val html = """
+            <style>
+              .square-btn { width: 80px; height: 80px; background: #3A86FF; border-radius: 8px; display: flex; align-items: center; justify-content: center; }
+              .inner { width: 40px; aspect-ratio: 1; background: white; border-radius: 50%; }
+            </style>
+            <div class="square-btn"><div class="inner"></div></div>
+        """.trimIndent()
+        val doc = NxprcPackager.compile(html, id = "rc.aspect_test", name = "Aspect Ratio Test")
+        assertNotNull(doc)
+        assertTrue(doc.canvas.layers.isNotEmpty(), "Aspect-ratio button should produce layers")
+        assertEquals("rc.aspect_test", doc.manifest.id)
+    }
+
+    /**
+     * Verifies parseDimensionWithCalc resolves calc() expressions correctly.
+     */
+    @Test
+    fun testCalcDimensionResolution() {
+        val parser = com.sanket.tools.nexpad.nxprc.engine.parsers.GeometryParser
+        val parent = 100f
+        assertEquals(80f, parser.parseDimensionWithCalc("80px", parent)!!, 0.001f)
+        assertEquals(50f, parser.parseDimensionWithCalc("50%", parent)!!, 0.001f)
+        assertEquals(80f, parser.parseDimensionWithCalc("calc(100% - 20px)", parent)!!, 0.001f)
+        assertEquals(55f, parser.parseDimensionWithCalc("calc(50% + 5px)", parent)!!, 0.001f)
+        assertEquals(95f, parser.parseDimensionWithCalc("calc(100% - 5%)", parent)!!, 0.001f)
+        assertEquals(100f, parser.parseDimensionWithCalc("calc(100% - 0px)", parent)!!, 0.001f)
+        assertNull(parser.parseDimensionWithCalc(null, parent))
+        assertNull(parser.parseDimensionWithCalc("  ", parent))
+        val html = """
+            <style>
+              .calc-btn { width: 80px; height: 80px; background: #9B59B6; border-radius: 50%; display: flex; align-items: center; justify-content: center; position: relative; }
+              .inner-ring { width: calc(100% - 16px); height: calc(100% - 16px); border: 2px solid rgba(255,255,255,0.4); border-radius: 50%; position: absolute; }
+            </style>
+            <div class="calc-btn"><div class="inner-ring"></div></div>
+        """.trimIndent()
+        val doc = NxprcPackager.compile(html, id = "rc.calc_test", name = "Calc Dimension Test")
+        assertNotNull(doc)
+        assertTrue(doc.canvas.layers.isNotEmpty(), "Calc button should produce layers")
+        val bytes = NxprcDocument.encodeToBytes(doc)
+        assertTrue(bytes.size > 4)
+        val decoded = NxprcDocument.decodeFromBytes(bytes)
+        assertTrue(decoded.isSuccess)
+        assertEquals(doc.manifest.id, decoded.getOrThrow().manifest.id)
+    }
+
+    // ── Stage 7: OOP Engine Capabilities, AngleUnits, FlexGaps & Structured Diagnostics ──
+
+    @Test
+    fun testAngleUnitParsingAndAffineMatrixConversions() {
+        // Test AngleUnit direct parsing
+        assertEquals(90f, com.sanket.tools.nexpad.nxprc.engine.parsers.AngleUnit.parseToDegrees("90deg")!!, 0.001f)
+        assertEquals(180f, com.sanket.tools.nexpad.nxprc.engine.parsers.AngleUnit.parseToDegrees("0.5turn")!!, 0.001f)
+        assertEquals(360f, com.sanket.tools.nexpad.nxprc.engine.parsers.AngleUnit.parseToDegrees("1turn")!!, 0.001f)
+        val oneRadInDeg = (180.0 / kotlin.math.PI).toFloat()
+        assertEquals(oneRadInDeg, com.sanket.tools.nexpad.nxprc.engine.parsers.AngleUnit.parseToDegrees("1rad")!!, 0.001f)
+        assertEquals(45f, com.sanket.tools.nexpad.nxprc.engine.parsers.AngleUnit.parseToDegrees("45")!!, 0.001f)
+
+        // Test AffineMatrix2D.parseTransform with various units
+        val mDeg = com.sanket.tools.nexpad.nxprc.engine.parsers.AffineMatrix2D.parseTransform("rotate(90deg)")
+        assertEquals(0f, mDeg.a, 0.001f)
+        assertEquals(1f, mDeg.b, 0.001f)
+        assertEquals(-1f, mDeg.c, 0.001f)
+        assertEquals(0f, mDeg.d, 0.001f)
+
+        val mTurn = com.sanket.tools.nexpad.nxprc.engine.parsers.AffineMatrix2D.parseTransform("rotate(0.5turn)")
+        assertEquals(-1f, mTurn.a, 0.001f)
+        assertEquals(0f, mTurn.b, 0.001f)
+        assertEquals(0f, mTurn.c, 0.001f)
+        assertEquals(-1f, mTurn.d, 0.001f)
+
+        val mRad = com.sanket.tools.nexpad.nxprc.engine.parsers.AffineMatrix2D.parseTransform("rotate(3.14159265rad)")
+        assertEquals(-1f, mRad.a, 0.01f)
+        assertEquals(0f, mRad.b, 0.01f)
+    }
+
+    @Test
+    fun testFlexGapsParsingAndDirectionResolution() {
+        val gapsRow = com.sanket.tools.nexpad.nxprc.engine.compiler.FlexGaps(main = 10f, cross = 20f)
+        assertEquals(10f, gapsRow.main)
+        assertEquals(20f, gapsRow.cross)
+
+        // Compile HTML with independent row-gap and column-gap
+        val html = """
+            <style>
+              .flex-container {
+                width: 100px;
+                height: 100px;
+                display: flex;
+                flex-direction: column;
+                row-gap: 8px;
+                column-gap: 16px;
+              }
+              .item1 { width: 100px; height: 30px; }
+              .item2 { width: 100px; height: 30px; }
+            </style>
+            <button class="flex-container">
+              <div class="item1"></div>
+              <div class="item2"></div>
+            </button>
+        """.trimIndent()
+        val doc = NxprcPackager.compile(html, id = "rc.flex_gaps_test", name = "Flex Gaps Test")
+        assertNotNull(doc)
+        assertTrue(doc.canvas.layers.isNotEmpty())
+    }
+
+    @Test
+    fun testNodeRoleClassifierProtectsDecorativeArtworkFromCapMisclassification() {
+        // Star emblem should NOT be classified as THUMB_CAP
+        val starNode = com.sanket.tools.nexpad.nxprc.engine.dom.DomNode("div", classNames = listOf("star-emblem"))
+        val starRole = com.sanket.tools.nexpad.nxprc.engine.classifier.NodeRoleClassifier.classify(
+            starNode,
+            NxprcCategory.JOYSTICK
+        )
+        assertTrue(starRole != com.sanket.tools.nexpad.nxprc.engine.classifier.NodeRoleClassifier.NodeRole.THUMB_CAP,
+            "star-emblem should NOT be classified as THUMB_CAP")
+
+        // Glyph icon should NOT be classified as THUMB_CAP
+        val glyphNode = com.sanket.tools.nexpad.nxprc.engine.dom.DomNode("div", classNames = listOf("glyph-icon"))
+        val glyphRole = com.sanket.tools.nexpad.nxprc.engine.classifier.NodeRoleClassifier.classify(
+            glyphNode,
+            NxprcCategory.JOYSTICK
+        )
+        assertTrue(glyphRole != com.sanket.tools.nexpad.nxprc.engine.classifier.NodeRoleClassifier.NodeRole.THUMB_CAP,
+            "glyph-icon should NOT be classified as THUMB_CAP")
+
+        // Explicit data-motion-group="cap"
+        val capNode = com.sanket.tools.nexpad.nxprc.engine.dom.DomNode(
+            "div",
+            attributes = mapOf("data-motion-group" to "cap")
+        )
+        val capRole = com.sanket.tools.nexpad.nxprc.engine.classifier.NodeRoleClassifier.classify(
+            capNode,
+            NxprcCategory.JOYSTICK
+        )
+        assertEquals(com.sanket.tools.nexpad.nxprc.engine.classifier.NodeRoleClassifier.NodeRole.THUMB_CAP, capRole)
+
+        // Explicit data-motion-group="base"
+        val baseNode = com.sanket.tools.nexpad.nxprc.engine.dom.DomNode(
+            "div",
+            attributes = mapOf("data-motion-group" to "base")
+        )
+        val baseRole = com.sanket.tools.nexpad.nxprc.engine.classifier.NodeRoleClassifier.classify(
+            baseNode,
+            NxprcCategory.JOYSTICK
+        )
+        assertEquals(com.sanket.tools.nexpad.nxprc.engine.classifier.NodeRoleClassifier.NodeRole.BASE_SOCKET, baseRole)
+    }
+
+    @Test
+    fun testStructuredCompilerDiagnosticsEmission() {
+        val htmlWithUnsupported = """
+            <style>
+              .test-btn {
+                width: 96px;
+                height: 96px;
+                display: grid;
+                mix-blend-mode: multiply;
+                backdrop-filter: blur(10px);
+                transition: opacity 0.2s ease;
+              }
+            </style>
+            <button class="test-btn">A</button>
+        """.trimIndent()
+
+        val result = NxprcPackager.compileWithWarnings(htmlWithUnsupported, "rc.diag", "Diagnostics Test")
+        assertTrue(result.warnings.isNotEmpty(), "Compiler should emit diagnostics for unsupported properties")
+
+        val propertiesEmitted = result.warnings.mapNotNull { it.property }
+        assertTrue(propertiesEmitted.contains("display") || propertiesEmitted.contains("mix-blend-mode") || propertiesEmitted.contains("backdrop-filter"),
+            "Diagnostics must include structured property names: $propertiesEmitted")
+
+        val summary = result.structuredDiagnosticSummary()
+        assertTrue(summary.contains("SUGGESTION") || summary.contains("WARNING") || summary.contains("DROPPED"),
+            "Structured summary must provide actionable fixes: $summary")
+    }
+
+    @Test
+    fun testEngineCapabilitiesSingleSourceOfTruth() {
+        val caps = EngineCapabilities.CURRENT
+        assertFalse(caps.cssGrid)
+        assertFalse(caps.cssMask)
+        assertFalse(caps.cssBlendMode)
+        assertFalse(caps.cssBackdropFilter)
+        assertFalse(caps.cssTransitions)
+        assertTrue(caps.cssKeyframesTransformOpacity)
+        assertTrue(caps.flexRowColumn)
+        assertTrue(caps.flexWrap)
+        assertTrue(caps.flexGaps)
+        assertTrue(caps.calc)
+        assertTrue(caps.aspectRatio)
+        assertTrue(caps.svgTransforms)
+        assertFalse(caps.svgFilters)
+        assertTrue(caps.dataLayerRoles)
+    }
+}
